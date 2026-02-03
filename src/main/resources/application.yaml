@@ -1,0 +1,88 @@
+﻿spring:
+  application:
+    name: demo
+  server:
+    servlet:
+      encoding:
+        enabled: true
+        force: true
+        charset: UTF-8
+  ai:
+    mcp:
+      client:
+        type: async
+        request-timeout: 60s
+        toolcallback:
+          enabled: true
+        sse:
+          baidu-mcp:
+            url: https://mcp.map.baidu.com/sse
+            headers:
+              ak: ${BAIDU_MAP_AK:your-baidu-map-ak}
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:your-dashscope-api-key}
+      chat:
+        options:
+          stream: true
+      embedding:
+        options:
+          model: text-embedding-v3
+    vectorstore:
+      redis:
+        initialize-schema: true
+        index-name: atguigu-index
+        prefix: atguigu-prefix
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
+  datasource:
+    url: jdbc:mysql://39.108.175.183:3306/rag_knowledge?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: nm561234789
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      max-lifetime: 600000       # 10 minutes
+      connection-timeout: 30000
+      validation-timeout: 5000
+      keepalive-time: 30000
+  data:
+    redis:
+      host: 39.108.175.183
+      port: 6379
+      database: 0
+      jedis:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 30000ms
+      timeout: 30000ms
+      connect-timeout: 10000ms
+
+minio:
+  endpoint: http://39.108.175.183:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket: rag-knowledge
+
+aliyun:
+  asr:
+    access-key-id: ${ALIYUN_ASR_ACCESS_KEY_ID:your-aliyun-asr-access-key-id}
+    access-key-secret: ${ALIYUN_ASR_ACCESS_KEY_SECRET:your-aliyun-asr-access-key-secret}
+    app-key: ${ALIYUN_ASR_APP_KEY:your-aliyun-asr-app-key}
+
+
+video:
+  segment-duration: 30
+  keyframe-interval: 5
+
+chunking:
+  strategy: FIXED
+  fixed:
+    chunk-size: 1000
+    overlap: 200
+  semantic:
+    max-chunk-size: 1500
+    min-chunk-size: 100
+
