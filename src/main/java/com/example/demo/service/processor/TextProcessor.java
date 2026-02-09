@@ -2,13 +2,14 @@ package com.example.demo.service.processor;
 
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.SourceType;
+import com.example.demo.service.TextSplitterService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.parser.AutoDetectParser;
 import org.apache.tika.parser.ParseContext;
 import org.apache.tika.parser.Parser;
 import org.apache.tika.sax.BodyContentHandler;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
@@ -20,19 +21,23 @@ import java.util.UUID;
 @Slf4j
 public class TextProcessor implements MediaProcessor {
 
-    @Value("${chunking.fixed.chunk-size}")
-    private int chunkSize;
-
-    @Value("${chunking.fixed.overlap}")
-    private int overlap;
+    @Autowired
+    private TextSplitterService textSplitterService;
 
     @Override
     public boolean supports(String mimeType) {
         return mimeType != null && (
                 mimeType.startsWith("text/") ||
                 mimeType.equals("application/pdf") ||
+                // Word documents
                 mimeType.equals("application/msword") ||
-                mimeType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                mimeType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document") ||
+                // PowerPoint presentations
+                mimeType.equals("application/vnd.ms-powerpoint") ||
+                mimeType.equals("application/vnd.openxmlformats-officedocument.presentationml.presentation") ||
+                // Excel spreadsheets
+                mimeType.equals("application/vnd.ms-excel") ||
+                mimeType.equals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         );
     }
 
@@ -51,8 +56,8 @@ public class TextProcessor implements MediaProcessor {
             parser.parse(input, handler, metadata, context);
             String fullText = handler.toString();
 
-            // Chunk text
-            List<String> chunks = chunkText(fullText);
+            // Chunk text using Spring AI TokenTextSplitter
+            List<String> chunks = textSplitterService.splitText(fullText);
             String sourceId = UUID.randomUUID().toString(); // Or passed from upload service
 
             for (int i = 0; i < chunks.size(); i++) {
@@ -72,26 +77,5 @@ public class TextProcessor implements MediaProcessor {
         }
 
         return units;
-    }
-
-    private List<String> chunkText(String text) {
-        List<String> chunks = new ArrayList<>();
-        if (text == null || text.isEmpty()) {
-            return chunks;
-        }
-
-        int length = text.length();
-        int start = 0;
-
-        while (start < length) {
-            int end = Math.min(start + chunkSize, length);
-            chunks.add(text.substring(start, end));
-
-            if (end == length) break;
-
-            start += (chunkSize - overlap);
-        }
-
-        return chunks;
     }
 }

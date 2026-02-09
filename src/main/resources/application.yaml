@@ -32,6 +32,8 @@
         initialize-schema: true
         index-name: atguigu-index
         prefix: atguigu-prefix
+        # 璁剧疆鍚戦噺鏁版嵁姘镐笉杩囨湡锛? 琛ㄧず涓嶈繃鏈燂級
+        ttl-seconds: 0
   servlet:
     multipart:
       max-file-size: 500MB
@@ -57,14 +59,39 @@
           max-idle: 8
           min-idle: 2
           max-wait: 30000ms
-      timeout: 30000ms
       connect-timeout: 10000ms
+  rabbitmq:
+    host: 39.108.175.183
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    listener:
+      simple:
+        # 娑堣垂鑰呭苟鍙戞暟锛堟牴鎹湇鍔″櫒鎬ц兘璋冩暣锛?
+        concurrency: 3
+        max-concurrency: 10
+        # 鎵嬪姩纭妯″紡锛岄槻姝㈡秷鎭涪澶?
+        acknowledge-mode: manual
+        # 棰勫彇鏁伴噺锛堟瘡娆′粠闃熷垪鎷夊彇鐨勬秷鎭暟锛?
+        prefetch: 1
+    template:
+      # 鍙戦€佹秷鎭け璐ユ椂鐨勯噸璇曟満鍒?
+      retry:
+        enabled: true
+        initial-interval: 1000
+        max-attempts: 3
 
 minio:
   endpoint: http://39.108.175.183:9000
   access-key: minioadmin
   secret-key: minioadmin
   bucket: rag-knowledge
+
+# 鏂囦欢涓婁紶閰嶇疆
+file:
+  upload:
+    temp-dir: ./temp/chunks  # 鍒嗙墖涓存椂瀛樺偍鐩綍
 
 aliyun:
   asr:
@@ -78,11 +105,23 @@ video:
   keyframe-interval: 5
 
 chunking:
-  strategy: FIXED
+  # 鏃х殑鍥哄畾鍒囧壊閰嶇疆锛堝凡搴熷純锛屼繚鐣欑敤浜庡弬鑰冿級
   fixed:
     chunk-size: 1000
     overlap: 200
-  semantic:
-    max-chunk-size: 1500
-    min-chunk-size: 100
+
+  # 鏂扮殑 Token 鍒囧壊閰嶇疆锛堟帹鑽愪娇鐢級
+  token:
+    # 榛樿姣忎釜鍒嗗潡鐨?token 鏁伴噺锛?00 tokens 鈮?3200 瀛楃锛岄€傚悎澶у鏁?AI 妯″瀷锛?
+    default-chunk-size: 800
+    # PPT 涓撶敤鐨?chunk size锛堝彲浠ヨ缃洿澶э紝鍥犱负 PPT 鍐呭缁撴瀯鍖栵級
+    ppt-chunk-size: 1000
+    # 鏈€灏忓垎鍧楀瓧绗︽暟锛堥伩鍏嶅垎鍧楄繃灏忥級
+    min-chunk-size-chars: 350
+    # 鏈€灏忓祵鍏ラ暱搴︼紙鐭簬姝ら暱搴︾殑鏂囨湰涓嶄細琚祵鍏ワ級
+    min-chunk-length-to-embed: 5
+    # 鏈€澶у垎鍧楁暟閲忥紙闃叉鏂囨。杩囧ぇ瀵艰嚧鍐呭瓨闂锛?
+    max-num-chunks: 10000
+    # 鏄惁淇濈暀鍒嗛殧绗︼紙娈佃惤銆佸彞瀛愯竟鐣岀瓑锛?
+    keep-separator: true
 

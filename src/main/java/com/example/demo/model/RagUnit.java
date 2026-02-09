@@ -13,6 +13,10 @@ public class RagUnit {
 
     private String sourceId;              // Original file ID/Path
 
+    private String fileHash;              // SHA-256 hash of original file (for deduplication)
+
+    private String filename;              // Original filename (indexed for fast lookup)
+
     private SourceType sourceType;
 
     private String content;

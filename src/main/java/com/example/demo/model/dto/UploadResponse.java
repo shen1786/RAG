@@ -1,12 +1,20 @@
 package com.example.demo.model.dto;
 
 import com.example.demo.model.SourceType;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.List;
 
 @Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class UploadResponse {
+    private boolean success;
+    private String message;
     private String sourceId;
     private String filename;
     private SourceType sourceType;
@@ -14,25 +22,32 @@ public class UploadResponse {
     private String minioPath;
     private String minioUrl;
     private List<String> unitIds;
-    private String message;
 
+    /**
+     * 同步模式成功响应（保留用于兼容）
+     */
     public static UploadResponse success(String sourceId, String filename, SourceType sourceType,
                                          int chunksCreated, String minioPath, String minioUrl, List<String> unitIds) {
-        UploadResponse response = new UploadResponse();
-        response.setSourceId(sourceId);
-        response.setFilename(filename);
-        response.setSourceType(sourceType);
-        response.setChunksCreated(chunksCreated);
-        response.setMinioPath(minioPath);
-        response.setMinioUrl(minioUrl);
-        response.setUnitIds(unitIds);
-        response.setMessage("File processed successfully");
-        return response;
+        return UploadResponse.builder()
+                .success(true)
+                .message("File processed successfully")
+                .sourceId(sourceId)
+                .filename(filename)
+                .sourceType(sourceType)
+                .chunksCreated(chunksCreated)
+                .minioPath(minioPath)
+                .minioUrl(minioUrl)
+                .unitIds(unitIds)
+                .build();
     }
 
+    /**
+     * 错误响应
+     */
     public static UploadResponse error(String message) {
-        UploadResponse response = new UploadResponse();
-        response.setMessage(message);
-        return response;
+        return UploadResponse.builder()
+                .success(false)
+                .message(message)
+                .build();
     }
 }

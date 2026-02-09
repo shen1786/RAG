@@ -61,10 +61,7 @@ public class AiController {
                     .collect(Collectors.joining("\n"));
 
             finalPrompt = """
-你是一个智能问答系统。
-以下是一些可能有帮助的参考资料，请优先使用它们回答问题。
-你可以使用系统提供的工具来获取实时信息。
-当问题涉及当前时间、日期等实时数据时，请调用工具。
+
 
 【参考资料】
 %s
@@ -78,7 +75,10 @@ public class AiController {
             finalPrompt = msg;
         }
 
-        return deepchatClient.prompt()
+        return deepchatClient.prompt("你是一个智能问答系统。\n" +
+                        "以下是一些可能有帮助的参考资料，请优先使用它们回答问题。\n" +
+                        "你可以使用系统提供的工具来获取实时信息。\n" +
+                        "当问题涉及当前时间、日期等实时数据时，请调用工具。")
                 .advisors(advisorSpec ->
                         advisorSpec.param(CONVERSATION_ID, userId))
                 .tools(dateTimeTools)
