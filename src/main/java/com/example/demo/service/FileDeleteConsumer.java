@@ -1,9 +1,7 @@
 package com.example.demo.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.example.demo.config.RabbitMQConfig;
+import com.example.demo.Config.RabbitMQConfig;
 import com.example.demo.mapper.RagUnitMapper;
-import com.example.demo.model.RagUnit;
 import com.example.demo.model.dto.FileDeleteTask;
 import com.rabbitmq.client.Channel;
 import lombok.extern.slf4j.Slf4j;
@@ -169,14 +167,14 @@ public class FileDeleteConsumer {
     }
 
     /**
-     * 删除MySQL数据
+     * 删除MySQL数据（批量删除）
      */
     private boolean deleteFromMySQL(FileDeleteTask task) {
         try {
             if (task.getUnitIds() != null && !task.getUnitIds().isEmpty()) {
-                for (String unitId : task.getUnitIds()) {
-                    ragUnitMapper.deleteById(unitId);
-                }
+                // 使用 MyBatis-Plus 批量删除，提升性能
+                ragUnitMapper.deleteByIds(task.getUnitIds());
+                log.info("已批量删除 {} 条MySQL记录", task.getUnitIds().size());
                 return true;
             }
             return true; // 没有数据需要删除也算成功

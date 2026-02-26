@@ -1,12 +1,13 @@
-﻿spring:
+﻿server:
+  servlet:
+    encoding:
+      enabled: true
+      force: true
+      charset: UTF-8
+
+spring:
   application:
     name: demo
-  server:
-    servlet:
-      encoding:
-        enabled: true
-        force: true
-        charset: UTF-8
   ai:
     mcp:
       client:
@@ -52,20 +53,25 @@
     redis:
       host: 39.108.175.183
       port: 6379
+      password: nm561234789 # 璇锋浛鎹负鎮ㄥ湪鏈嶅姟鍣ㄤ笂璁剧疆鐨勫己瀵嗙爜
       database: 0
+      timeout: 60000ms
+      connect-timeout: 30000ms
       jedis:
         pool:
-          max-active: 16
-          max-idle: 8
-          min-idle: 2
-          max-wait: 30000ms
-      connect-timeout: 10000ms
+          max-active: 32
+          max-idle: 16
+          min-idle: 4
+          max-wait: 60000ms
+          time-between-eviction-runs: 30000ms
+          min-evictable-idle-time: 60000ms
   rabbitmq:
     host: 39.108.175.183
     port: 5672
-    username: guest
-    password: guest
+    username: rabbitmq
+    password: nm561234789
     virtual-host: /
+    connection-timeout: 30000  # 杩炴帴瓒呮椂 30 绉?
     listener:
       simple:
         # 娑堣垂鑰呭苟鍙戞暟锛堟牴鎹湇鍔″櫒鎬ц兘璋冩暣锛?
@@ -75,6 +81,8 @@
         acknowledge-mode: manual
         # 棰勫彇鏁伴噺锛堟瘡娆′粠闃熷垪鎷夊彇鐨勬秷鎭暟锛?
         prefetch: 1
+        # 娑堣垂鑰呰秴鏃舵椂闂达紙榛樿30鍒嗛挓澶煭锛屾敼涓?灏忔椂锛?
+        idle-event-interval: 7200000
     template:
       # 鍙戦€佹秷鎭け璐ユ椂鐨勯噸璇曟満鍒?
       retry:
@@ -124,4 +132,22 @@ chunking:
     max-num-chunks: 10000
     # 鏄惁淇濈暀鍒嗛殧绗︼紙娈佃惤銆佸彞瀛愯竟鐣岀瓑锛?
     keep-separator: true
+
+# RAG 妫€绱㈤厤缃?
+rag:
+  retrieval:
+    # 绮楀彫鍥炲€欓€夋暟閲忥紙鍚戦噺妫€绱㈤樁娈碉紝Rerank 鍓嶏級
+    # 鍊艰秺澶у彫鍥炶秺鍏ㄩ潰锛屼絾 Rerank 鑰楁椂涔熻秺闀?
+    candidate-top-k: 15
+    # 鍚戦噺鐩镐技搴︽渶浣庨槇鍊硷紙浣庝簬姝ゅ垎鏁扮殑缁撴灉鐩存帴涓㈠純锛?
+    # 璁句綆涓€浜涜 Rerank 鏈夋洿澶氬€欓€夋潵绮炬帓
+    similarity-threshold: 0.3
+    # Rerank 鍚庢渶缁堣繑鍥炵殑鏂囨。鏁伴噺
+    final-top-k: 5
+    # 鍒ゅ畾"鍛戒腑鐭ヨ瘑搴?鐨勬渶浣?Rerank 鍒嗘暟
+    # 浣庝簬姝ゅ垎鏁拌涓烘湭鍛戒腑锛岃蛋绾€氱敤闂瓟
+    hit-score-threshold: 0.35
+  rerank:
+    # Rerank 妯″瀷鍚嶇О锛圖ashScope 鎻愪緵锛?
+    model: gte-rerank-v2
 

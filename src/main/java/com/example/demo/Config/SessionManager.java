@@ -3,7 +3,6 @@ package com.example.demo.Config;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -67,12 +66,26 @@ public class SessionManager {
     public void deleteSession(String userId, String sessionId) {
         String sessionKey = SESSION_LIST_PREFIX + userId;
 
-        // 从会话列表中移除
+        // 1. 从会话列表中移除
         redisTemplate.opsForZSet().remove(sessionKey, sessionId);
 
-        // 删除会话信息
+        // 2. 删除会话信息
         String sessionInfoKey = SESSION_INFO_PREFIX + sessionId;
         redisTemplate.delete(sessionInfoKey);
+
+        // 3. 清理对话历史（关键修改：删除 Redis 中的对话消息）
+        // RedisChatMemoryRepository 存储格式：spring:ai:chat:memory:{conversationId}
+        String chatMemoryKey = "spring:ai:chat:memory:" + sessionId;
+        try {
+            Boolean deleted = redisTemplate.delete(chatMemoryKey);
+            if (Boolean.TRUE.equals(deleted)) {
+                log.info("Deleted chat memory for session: {}", sessionId);
+            } else {
+                log.warn("Chat memory key not found for session: {}", sessionId);
+            }
+        } catch (Exception e) {
+            log.error("Failed to delete chat memory for session: {}", sessionId, e);
+        }
 
         log.info("Deleted session: {} for user: {}", sessionId, userId);
     }
@@ -105,7 +118,8 @@ public class SessionManager {
      */
     public void updateSessionActivity(String userId, String sessionId) {
         String sessionKey = SESSION_LIST_PREFIX + userId;
-        redisTemplate.opsForZSet().incrementScore(sessionKey, sessionId, System.currentTimeMillis());
+        // 修复：使用 add 替换 score，而不是 incrementScore 累加
+        redisTemplate.opsForZSet().add(sessionKey, sessionId, (double) System.currentTimeMillis());
     }
 
     /**

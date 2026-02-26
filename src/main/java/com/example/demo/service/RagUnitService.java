@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.demo.mapper.RagUnitMapper;
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.SourceType;
+import com.example.demo.model.dto.FileExistenceResponse;
 import com.example.demo.model.dto.FileProcessTask;
 import com.example.demo.model.dto.UploadResponse;
 import com.example.demo.service.processor.*;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -52,6 +54,24 @@ public class RagUnitService {
     private FileProcessProducer fileProcessProducer;
 
     private final Tika tika = new Tika();
+
+    /**
+     * 批量保存 RagUnit 到数据库（使用 MyBatis-Plus 批量插入）
+     * @param units RagUnit 列表
+     */
+    public void saveBatch(List<RagUnit> units) {
+        if (units == null || units.isEmpty()) {
+            return;
+        }
+        // MyBatis-Plus 的批量插入，默认每批 1000 条
+        for (int i = 0; i < units.size(); i += 1000) {
+            int end = Math.min(i + 1000, units.size());
+            List<RagUnit> batch = units.subList(i, end);
+            for (RagUnit unit : batch) {
+                ragUnitMapper.insert(unit);
+            }
+        }
+    }
 
     /**
      * 检查文件是否已存在（通过SHA-256哈希值）
@@ -116,7 +136,6 @@ public class RagUnitService {
      */
     public UploadResponse processAndStoreAsync(MultipartFile file, String fileHash) throws Exception {
         String filename = file.getOriginalFilename();
-        byte[] fileBytes = file.getBytes();
         long fileSize = file.getSize();
 
         // 验证fileHash
@@ -146,8 +165,11 @@ public class RagUnitService {
                     .build();
         }
 
-        // 检测MIME类型
-        String mimeType = tika.detect(fileBytes, filename);
+        // 检测MIME类型（使用流式处理，避免加载整个文件到内存）
+        String mimeType;
+        try (InputStream inputStream = file.getInputStream()) {
+            mimeType = tika.detect(inputStream, filename);
+        }
         log.info("检测到文件类型: {} -> {}", filename, mimeType);
 
         // 验证是否支持该文件类型
@@ -161,7 +183,7 @@ public class RagUnitService {
 
         // 1. 上传原始文件到MinIO
         String minioPath = sourceId + "/" + filename;
-        uploadService.uploadFile(new ByteArrayInputStream(fileBytes), minioPath, mimeType);
+        uploadService.uploadFile(file, minioPath);
         String minioUrl = uploadService.getFileUrl(minioPath);
         log.info("文件已上传到MinIO: {}", minioPath);
 
@@ -217,20 +239,21 @@ public class RagUnitService {
 
         // 1. 上传原始文件到MinIO
         String minioPath = sourceId + "/" + filename;
-        uploadService.uploadFile(new ByteArrayInputStream(fileBytes), minioPath, mimeType);
+        uploadService.uploadFile(file, minioPath);
         String minioUrl = uploadService.getFileUrl(minioPath);
         log.info("文件已上传到MinIO: {}", minioPath);
 
         // 2. 构建处理任务并发送到RabbitMQ
-        FileProcessTask task = new FileProcessTask(
-            sourceId,
-            filename,
-            mimeType,
-            minioPath,
-            minioUrl,
-            fileSize,
-            System.currentTimeMillis()
-        );
+        FileProcessTask task = FileProcessTask.builder()
+            .sourceId(sourceId)
+            .filename(filename)
+            .fileHash(null)
+            .mimeType(mimeType)
+            .minioPath(minioPath)
+            .minioUrl(minioUrl)
+            .fileSize(fileSize)
+            .createTimestamp(System.currentTimeMillis())
+            .build();
 
         fileProcessProducer.sendFileProcessTask(task);
 
@@ -271,7 +294,7 @@ public class RagUnitService {
 
         // Upload original file to MinIO
         String minioPath = sourceId + "/" + filename;
-        uploadService.uploadFile(new ByteArrayInputStream(fileBytes), minioPath, mimeType);
+        uploadService.uploadFile(file, minioPath);
         String minioUrl = uploadService.getFileUrl(minioPath);
 
         // Process file to extract RagUnits (pass URL for image processing)

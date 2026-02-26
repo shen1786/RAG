@@ -1,6 +1,7 @@
 package com.example.demo.model.dto;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -11,6 +12,7 @@ import java.io.Serializable;
  * 通过RabbitMQ传递，触发异步文件处理
  */
 @Data
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class FileProcessTask implements Serializable {

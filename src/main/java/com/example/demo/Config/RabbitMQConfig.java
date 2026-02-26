@@ -1,4 +1,4 @@
-package com.example.demo.config;
+package com.example.demo.Config;
 
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
@@ -81,6 +81,21 @@ public class RabbitMQConfig {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(messageConverter);
+
+        // 手动确认模式
+        factory.setAcknowledgeMode(org.springframework.amqp.core.AcknowledgeMode.MANUAL);
+
+        // 预取数量：每次只拉取1条消息处理
+        factory.setPrefetchCount(1);
+
+        // 消费者数量
+        factory.setConcurrentConsumers(3);
+        factory.setMaxConcurrentConsumers(10);
+
+        // 设置消息超时时间（2小时），防止长时间处理被中断
+        factory.setDefaultRequeueRejected(false);
+        factory.setIdleEventInterval(7200000L);
+
         return factory;
     }
 

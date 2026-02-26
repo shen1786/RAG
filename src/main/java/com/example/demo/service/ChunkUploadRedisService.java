@@ -3,6 +3,7 @@ package com.example.demo.service;
 import com.example.demo.model.dto.ChunkUploadStatus;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -19,14 +20,24 @@ public class ChunkUploadRedisService {
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
+    @Value("${file.upload.expire-hours:24}")
+    private int expireHours;
+
     private static final String CHUNK_UPLOAD_PREFIX = "chunk:upload:";
-    private static final int EXPIRE_HOURS = 24; // 24小时过期
+    private static final String CHUNK_SET_PREFIX = "chunk:set:";  // 新增：用于存储已上传分片的 SET
 
     /**
      * 获取Redis Key
      */
     private String getKey(String fileHash) {
         return CHUNK_UPLOAD_PREFIX + fileHash;
+    }
+
+    /**
+     * 获取已上传分片 SET 的 Key
+     */
+    private String getChunkSetKey(String fileHash) {
+        return CHUNK_SET_PREFIX + fileHash;
     }
 
     /**
@@ -46,7 +57,7 @@ public class ChunkUploadRedisService {
                 .build();
 
         String key = getKey(fileHash);
-        redisTemplate.opsForValue().set(key, status, EXPIRE_HOURS, TimeUnit.HOURS);
+        redisTemplate.opsForValue().set(key, status, expireHours, TimeUnit.HOURS);
         log.info("初始化上传状态: fileHash={}, totalChunks={}", fileHash, totalChunks);
     }
 
@@ -60,29 +71,36 @@ public class ChunkUploadRedisService {
     }
 
     /**
-     * 标记分片已上传
+     * 标记分片已上传（使用 Redis SET 解决并发竞态问题）
      */
     public void markChunkUploaded(String fileHash, Integer chunkNumber) {
         String key = getKey(fileHash);
-        ChunkUploadStatus status = getUploadStatus(fileHash);
+        String chunkSetKey = getChunkSetKey(fileHash);
 
+        // 1. 使用 Redis SET 原子性添加已上传分片（解决竞态条件）
+        redisTemplate.opsForSet().add(chunkSetKey, chunkNumber);
+        redisTemplate.expire(chunkSetKey, expireHours, TimeUnit.HOURS);
+
+        // 2. 获取当前状态
+        ChunkUploadStatus status = getUploadStatus(fileHash);
         if (status == null) {
             log.warn("上传状态不存在: fileHash={}", fileHash);
             return;
         }
 
-        status.getUploadedChunks().add(chunkNumber);
+        // 3. 从 Redis SET 获取所有已上传分片数量
+        Long uploadedCount = redisTemplate.opsForSet().size(chunkSetKey);
         status.setUpdateTime(System.currentTimeMillis());
 
-        // 检查是否所有分片都已上传
-        if (status.isAllChunksUploaded()) {
+        // 4. 检查是否所有分片都已上传
+        if (uploadedCount != null && uploadedCount >= status.getTotalChunks()) {
             status.setStatus(ChunkUploadStatus.UploadStatus.COMPLETED);
-            log.info("所有分片上传完成: fileHash={}", fileHash);
+            log.info("所有分片上传完成: fileHash={}, totalChunks={}", fileHash, uploadedCount);
         }
 
-        redisTemplate.opsForValue().set(key, status, EXPIRE_HOURS, TimeUnit.HOURS);
-        log.debug("标记分片已上传: fileHash={}, chunk={}, progress={}%",
-                fileHash, chunkNumber, status.getProgress());
+        redisTemplate.opsForValue().set(key, status, expireHours, TimeUnit.HOURS);
+        log.debug("标记分片已上传: fileHash={}, chunk={}, uploaded={}/{}",
+                fileHash, chunkNumber, uploadedCount, status.getTotalChunks());
     }
 
     /**
@@ -90,16 +108,20 @@ public class ChunkUploadRedisService {
      */
     public void deleteUploadStatus(String fileHash) {
         String key = getKey(fileHash);
+        String chunkSetKey = getChunkSetKey(fileHash);
+
+        // 删除状态对象和分片 SET
         redisTemplate.delete(key);
+        redisTemplate.delete(chunkSetKey);
         log.info("删除上传状态: fileHash={}", fileHash);
     }
 
     /**
-     * 检查分片是否已上传
+     * 检查分片是否已上传（从 Redis SET 中检查）
      */
     public boolean isChunkUploaded(String fileHash, Integer chunkNumber) {
-        ChunkUploadStatus status = getUploadStatus(fileHash);
-        return status != null && status.getUploadedChunks().contains(chunkNumber);
+        String chunkSetKey = getChunkSetKey(fileHash);
+        return Boolean.TRUE.equals(redisTemplate.opsForSet().isMember(chunkSetKey, chunkNumber));
     }
 
     /**
@@ -111,7 +133,7 @@ public class ChunkUploadRedisService {
             status.setStatus(ChunkUploadStatus.UploadStatus.FAILED);
             status.setUpdateTime(System.currentTimeMillis());
             String key = getKey(fileHash);
-            redisTemplate.opsForValue().set(key, status, EXPIRE_HOURS, TimeUnit.HOURS);
+            redisTemplate.opsForValue().set(key, status, expireHours, TimeUnit.HOURS);
             log.error("标记上传失败: fileHash={}", fileHash);
         }
     }

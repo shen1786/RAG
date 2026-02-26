@@ -1,6 +1,6 @@
 package com.example.demo.service;
 
-import com.example.demo.config.RabbitMQConfig;
+import com.example.demo.Config.RabbitMQConfig;
 import com.example.demo.model.dto.FileDeleteTask;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;

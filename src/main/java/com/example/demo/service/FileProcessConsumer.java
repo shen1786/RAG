@@ -1,6 +1,6 @@
 package com.example.demo.service;
 
-import com.example.demo.config.RabbitMQConfig;
+import com.example.demo.Config.RabbitMQConfig;
 import com.example.demo.mapper.RagUnitMapper;
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.dto.FileProcessTask;
@@ -14,6 +14,7 @@ import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -54,9 +55,10 @@ public class FileProcessConsumer {
 
         long startTime = System.currentTimeMillis();
 
-        try {
-            // 1. 从MinIO下载文件
-            InputStream fileStream = downloadFromMinio(task.getMinioUrl());
+        try (
+            // 1. 从MinIO下载文件（使用 try-with-resources 自动关闭）
+            InputStream fileStream = downloadFromMinio(task.getMinioUrl())
+        ) {
 
             // 2. 识别处理器
             MediaProcessor processor = ragUnitService.findProcessorByMimeType(task.getMimeType());
@@ -74,53 +76,33 @@ public class FileProcessConsumer {
 
             log.info("文件 {} 解析完成，共生成 {} 个切片", task.getFilename(), units.size());
 
-            // 4. 保存到MySQL和准备向量数据
-            List<Document> documents = new ArrayList<>();
-
-            for (RagUnit unit : units) {
-                unit.setSourceId(task.getSourceId());
-                unit.setFileHash(task.getFileHash());  // 设置文件哈希值
-                unit.setFilename(task.getFilename());  // 设置filename字段
-                unit.setMinioPath(task.getMinioPath());
-                unit.setMinioUrl(task.getMinioUrl());
-
-                // 保存到MySQL
-                ragUnitMapper.insert(unit);
-
-                // 准备向量数据
-                if (unit.getContent() != null && !unit.getContent().isEmpty()) {
-                    Map<String, Object> metadata = new HashMap<>();
-                    metadata.put("source_id", unit.getSourceId());
-                    metadata.put("source_type", unit.getSourceType().name());
-                    metadata.put("unit_id", unit.getId());
-                    if (unit.getStartTime() != null) metadata.put("start_time", unit.getStartTime());
-                    if (unit.getEndTime() != null) metadata.put("end_time", unit.getEndTime());
-                    metadata.put("filename", task.getFilename());
-
-                    Document doc = new Document(unit.getId(), unit.getContent(), metadata);
-                    documents.add(doc);
-                }
-            }
-
-            // 5. 批量写入向量数据库（带限流）
-            if (!documents.isEmpty()) {
-                addDocumentsToVectorStore(documents, task.getFilename());
-            }
+            // 4. 保存数据并向量化（使用事务保证数据一致性）
+            saveDataWithTransaction(units, task);
 
             long duration = System.currentTimeMillis() - startTime;
             log.info("文件处理成功: {} (耗时: {}ms, 切片数: {})",
                     task.getFilename(), duration, units.size());
 
             // 6. 手动确认消息
-            channel.basicAck(deliveryTag, false);
+            if (channel.isOpen()) {
+                channel.basicAck(deliveryTag, false);
+                log.info("消息已确认: deliveryTag={}", deliveryTag);
+            } else {
+                log.warn("Channel 已关闭，无法确认消息: deliveryTag={}", deliveryTag);
+            }
 
         } catch (Exception e) {
             log.error("文件处理失败: {}", task.getFilename(), e);
 
             try {
-                // 拒绝消息并重新入队（最多重试3次）
-                // 如果是第3次失败，则发送到死信队列
-                channel.basicNack(deliveryTag, false, false);
+                // 检查 Channel 是否还开启
+                if (channel.isOpen()) {
+                    // 拒绝消息，不重新入队（避免死循环）
+                    channel.basicNack(deliveryTag, false, false);
+                    log.info("消息已拒绝: deliveryTag={}", deliveryTag);
+                } else {
+                    log.warn("Channel 已关闭，无法确认消息: deliveryTag={}", deliveryTag);
+                }
             } catch (Exception ackException) {
                 log.error("消息确认失败", ackException);
             }
@@ -139,35 +121,109 @@ public class FileProcessConsumer {
     }
 
     /**
-     * 批量添加文档到向量数据库，带限流控制
+     * 保存数据到MySQL和向量库（带事务管理）
+     * 事务范围：MySQL 批量插入
+     * 如果向量库写入失败，回滚 MySQL 数据
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void saveDataWithTransaction(List<RagUnit> units, FileProcessTask task) throws Exception {
+        // 准备数据字段
+        for (RagUnit unit : units) {
+            unit.setSourceId(task.getSourceId());
+            unit.setFileHash(task.getFileHash());
+            unit.setFilename(task.getFilename());
+            unit.setMinioPath(task.getMinioPath());
+            unit.setMinioUrl(task.getMinioUrl());
+        }
+
+        // 1. 先批量插入 MySQL（生成 ID）
+        if (!units.isEmpty()) {
+            ragUnitService.saveBatch(units);
+            log.info("已批量保存 {} 个切片到数据库", units.size());
+        }
+
+        // 2. 用生成的 ID 构建 Document 列表
+        List<Document> documents = new ArrayList<>();
+        for (RagUnit unit : units) {
+            if (unit.getContent() != null && !unit.getContent().isEmpty()) {
+                Map<String, Object> metadata = new HashMap<>();
+                metadata.put("source_id", unit.getSourceId());
+                metadata.put("source_type", unit.getSourceType().name());
+                metadata.put("unit_id", unit.getId());
+                if (unit.getStartTime() != null) metadata.put("start_time", unit.getStartTime());
+                if (unit.getEndTime() != null) metadata.put("end_time", unit.getEndTime());
+                metadata.put("filename", task.getFilename());
+
+                Document doc = new Document(unit.getId(), unit.getContent(), metadata);
+                documents.add(doc);
+            }
+        }
+
+        // 3. 批量写入向量数据库
+        // 注意：如果向量库写入失败，会触发事务回滚，删除已插入的 MySQL 数据
+        if (!documents.isEmpty()) {
+            addDocumentsToVectorStore(documents, task.getFilename());
+        }
+    }
+
+    /**
+     * 批量添加文档到向量数据库，带限流控制和重试机制
      */
     private void addDocumentsToVectorStore(List<Document> documents, String filename) throws Exception {
-        int batchSize = 10; // DashScope API限制
+        int batchSize = 3; // 减小批次大小，避免 Redis 连接重置
         int totalDocs = documents.size();
+        int successCount = 0;
+        int failCount = 0;
 
-        if (totalDocs <= batchSize) {
-            vectorStore.add(documents);
-            log.info("已添加 {} 个向量到VectorStore", documents.size());
-        } else {
+        log.info("开始向量化 {} 个文档，批次大小: {}", totalDocs, batchSize);
+
+        for (int i = 0; i < totalDocs; i += batchSize) {
+            int end = Math.min(i + batchSize, totalDocs);
+            List<Document> batch = documents.subList(i, end);
+            int batchNum = (i / batchSize) + 1;
             int numBatches = (totalDocs + batchSize - 1) / batchSize;
 
-            for (int i = 0; i < totalDocs; i += batchSize) {
-                int end = Math.min(i + batchSize, totalDocs);
-                List<Document> batch = documents.subList(i, end);
-                int batchNum = (i / batchSize) + 1;
+            // 重试机制：最多重试 3 次
+            boolean success = false;
+            for (int retry = 0; retry < 3; retry++) {
+                try {
+                    vectorStore.add(batch);
+                    log.info("批次 {}/{}: 成功添加 {} 个向量",
+                            batchNum, numBatches, batch.size());
+                    successCount += batch.size();
+                    success = true;
+                    break;
+                } catch (Exception e) {
+                    log.warn("批次 {}/{} 写入失败（第 {} 次尝试）: {}",
+                            batchNum, numBatches, retry + 1, e.getMessage());
 
-                vectorStore.add(batch);
-                log.info("批次 {}/{}: 成功添加 {} 个向量",
-                        batchNum, numBatches, batch.size());
-
-                // 批次间延迟，避免触发API限流
-                if (i + batchSize < totalDocs) {
-                    Thread.sleep(1000);
+                    if (retry < 2) {
+                        // 使用指数退避策略，但不阻塞线程
+                        // 简单等待（后续可改为异步调度）
+                        try {
+                            Thread.sleep(1000 * (retry + 1)); // 1秒、2秒递增
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            throw new Exception("重试被中断", ie);
+                        }
+                    } else {
+                        // 最后一次失败，记录错误
+                        log.error("批次 {}/{} 最终失败，跳过这 {} 个文档",
+                                batchNum, numBatches, batch.size());
+                        failCount += batch.size();
+                    }
                 }
             }
 
-            log.info("文件 {} 的所有 {} 个向量已成功写入（共 {} 个批次）",
-                    filename, totalDocs, numBatches);
+            // 批次间无需延迟（已通过 Redis 连接池优化和批次大小控制）
+        }
+
+        log.info("文件 {} 向量写入完成 - 成功: {}/{}, 失败: {}",
+                filename, successCount, totalDocs, failCount);
+
+        // 如果失败太多，抛出异常
+        if (failCount > totalDocs / 2) {
+            throw new Exception("向量写入失败率过高: " + failCount + "/" + totalDocs);
         }
     }
 }

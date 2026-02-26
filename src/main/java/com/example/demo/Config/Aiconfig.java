@@ -3,15 +3,15 @@
 import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
-import com.alibaba.cloud.ai.dashscope.embedding.DashScopeEmbeddingModel;
-import com.alibaba.cloud.ai.dashscope.embedding.DashScopeEmbeddingOptions;
+import com.alibaba.cloud.ai.dashscope.rerank.DashScopeRerankModel;
+import com.alibaba.cloud.ai.dashscope.rerank.DashScopeRerankOptions;
 import com.alibaba.cloud.ai.memory.redis.RedisChatMemoryRepository;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.prompt.ChatOptions;
 
-import org.springframework.ai.embedding.EmbeddingModel;
+import com.alibaba.cloud.ai.model.RerankModel;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -76,6 +76,19 @@ public class Aiconfig {
                 .defaultOptions(ChatOptions.builder().model("qwen-plus").build())
                 .defaultToolCallbacks(tools.getToolCallbacks())
                 .build();
+    }
+
+    /**
+     * DashScope Rerank 妯″瀷锛堢簿鎺掞級
+     * 鐢ㄤ簬瀵瑰悜閲忔绱㈢殑绮楀彫鍥炵粨鏋滆繘琛屼簩娆＄簿鎺掞紝鎻愬崌 RAG 妫€绱㈣川閲?
+     */
+    @Bean
+    public RerankModel rerankModel(DashScopeApi dashScopeApi,
+                                   @Value("${rag.rerank.model:gte-rerank-v2}") String rerankModelName) {
+        return new DashScopeRerankModel(dashScopeApi,
+                DashScopeRerankOptions.builder()
+                        .withModel(rerankModelName)
+                        .build());
     }
 }
 
