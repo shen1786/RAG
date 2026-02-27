@@ -4,7 +4,9 @@ package com.example.demo.Controller;
 import com.example.demo.Config.DateTimeTools;
 import com.example.demo.Config.SessionManager;
 import com.example.demo.model.dto.*;
+import com.example.demo.service.QueryRewriteService;
 import com.example.demo.service.RagRetrievalService;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -21,12 +23,14 @@ import java.util.Set;
 
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 
+@Slf4j
 @RestController
 @RequestMapping("/ai")
 @RequiredArgsConstructor
 public class AiController {
     private final ChatClient deepchatClient;
     private final RagRetrievalService ragRetrievalService;
+    private final QueryRewriteService queryRewriteService;
     private final DateTimeTools dateTimeTools;
     private final StringRedisTemplate redisTemplate;
     private final SessionManager sessionManager;
@@ -35,33 +39,22 @@ public class AiController {
         // 1️⃣ 向量粗召回 + Rerank 精排
         RetrievalResult result = ragRetrievalService.retrieve(msg);
 
-        String finalPrompt;
+        String systemPrompt = "你是一个智能问答系统。\n" +
+                "你可以使用系统提供的工具来获取实时信息。\n" +
+                "当问题涉及当前时间、日期等实时数据时，请调用工具。";
 
         if (result.isHit()) {
-            // 2️⃣ 命中知识库，构建增强 Prompt
-            finalPrompt = """
-
-
-【参考资料】
-%s
-
-【用户问题】
-%s
-""".formatted(result.getKnowledgeText(), msg);
-
-        } else {
-            // 3️⃣ 纯通用问答
-            finalPrompt = msg;
+            // 2️⃣ 命中知识库，将参考资料放入 System Prompt
+            systemPrompt += "\n\n以下是一些可能有帮助的参考资料，请优先使用它们回答问题：\n\n【参考资料】\n" + result.getKnowledgeText();
         }
 
-        return deepchatClient.prompt("你是一个智能问答系统。\n" +
-                        "以下是一些可能有帮助的参考资料，请优先使用它们回答问题。\n" +
-                        "你可以使用系统提供的工具来获取实时信息。\n" +
-                        "当问题涉及当前时间、日期等实时数据时，请调用工具。")
+        // 3️⃣ 调用大模型，把原始短文本给 user，巨量参考资料给 system
+        return deepchatClient.prompt()
                 .advisors(advisorSpec ->
                         advisorSpec.param(CONVERSATION_ID, userId))
                 .tools(dateTimeTools)
-                .user(finalPrompt)
+                .system(systemPrompt)
+                .user(msg)
                 .call()
                 .content();
     }
@@ -140,53 +133,44 @@ public class AiController {
 
         sessionManager.updateSessionActivity(userId, request.getSessionId());
 
-        // 1. 向量粗召回 + Rerank 精排
-        RetrievalResult result = ragRetrievalService.retrieve(request.getMessage());
+        // 1. 查询改写：将含有代词/省略的用户问题改写为独立完整的查询语句
+        String originalQuery = request.getMessage();
+        String rewrittenQuery = queryRewriteService.rewrite(request.getSessionId(), originalQuery);
+        log.info("多轮对话检索 - 原始查询: '{}', 改写后: '{}'", originalQuery, rewrittenQuery);
 
-        String finalPrompt;
+        // 2. 用改写后的查询做向量粗召回 + Rerank 精排
+        RetrievalResult result = ragRetrievalService.retrieve(rewrittenQuery);
+
+        String systemPrompt;
 
         if (result.isHit()) {
-            // 构建增强提示词
-            finalPrompt = String.format("""
+            // 构建增强提示词（重要：知识库信息必须放在 system 中，防止它被错误地当作 user 的历史发言记入 Redis）
+            systemPrompt = String.format("""
 你是一个智能问答助手，能够基于提供的知识库信息进行专业回答。
 当你认为知识库信息对回答有帮助时，请优先使用它们。
 
 【知识库参考】
 %s
-
-【用户问题】
-%s
-
-请基于以上信息提供专业、准确的回答。
-""",
-                    result.getKnowledgeText(),
-                    request.getMessage());
+""", result.getKnowledgeText());
         } else {
             // 普通问答
-            finalPrompt = String.format("""
-你是一个智能问答助手。
-
-【用户问题】
-%s
-
-请提供专业、准确的回答。
-""",
-                    request.getMessage());
+            systemPrompt = "你是一个智能问答助手。请提供专业、准确的回答。";
         }
 
-        // 2. 构建AI调用
+        // 3. 构建AI调用
         ChatClientResponse response = deepchatClient.prompt()
                 .advisors(advisorSpec ->
                     advisorSpec.param(CONVERSATION_ID, request.getSessionId()))
                 .tools(dateTimeTools)
-                .user(finalPrompt)
+                .system(systemPrompt)     // 巨量资料和规则放在系统层
+                .user(originalQuery)      // 用户的输入仅仅是这句短话
                 .call()
                 .chatClientResponse();
 
-        // 3. 获取回复内容
+        // 4. 获取回复内容
         String reply = response.chatResponse().getResult().getOutput().getText();
 
-        // 4. 构建响应
+        // 5. 构建响应
         MultiTurnChatResponse data = new MultiTurnChatResponse(
                 request.getSessionId(),
                 request.getTurnCount() + 1,
