@@ -20,11 +20,13 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class Aiconfig {
+    @Value("${spring.ai.dashscope.api-key}")
+    private static String API_KEY ;
 
     @Bean
     public DashScopeApi dashScopeApi() {
         return DashScopeApi.builder()
-                .apiKey("your-dashscope-api-key")
+                .apiKey(API_KEY)
                 .build();
     }
     @Bean(name = "qwen")

@@ -1,6 +1,7 @@
 package com.example.demo.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.extension.service.IService;
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.dto.RagDocumentInfo;
 import org.apache.ibatis.annotations.Mapper;
@@ -10,7 +11,7 @@ import org.apache.ibatis.annotations.Select;
 import java.util.List;
 
 @Mapper
-public interface RagUnitMapper extends BaseMapper<RagUnit> {
+public interface RagUnitMapper extends BaseMapper<RagUnit>  {
 
     @Select("<script>" +
             "SELECT " +

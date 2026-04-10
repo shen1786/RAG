@@ -6,19 +6,23 @@ import com.example.demo.Config.SessionManager;
 import com.example.demo.model.dto.*;
 import com.example.demo.service.QueryRewriteService;
 import com.example.demo.service.RagRetrievalService;
+import com.example.demo.service.UserProfileService;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
 
-import org.springframework.data.redis.core.StringRedisTemplate;
+import com.alibaba.cloud.ai.memory.redis.RedisChatMemoryRepository;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Flux;
 
+import java.util.List;
 import java.util.Set;
 
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
@@ -31,8 +35,9 @@ public class AiController {
     private final ChatClient deepchatClient;
     private final RagRetrievalService ragRetrievalService;
     private final QueryRewriteService queryRewriteService;
+    private final UserProfileService userProfileService;
     private final DateTimeTools dateTimeTools;
-    private final StringRedisTemplate redisTemplate;
+    private final RedisChatMemoryRepository chatMemoryRepository;
     private final SessionManager sessionManager;
     @GetMapping(value = "/chatmemory/chat", produces = "text/plain;charset=UTF-8")
     public String chat(String msg, String userId) {
@@ -88,15 +93,71 @@ public class AiController {
             throw new IllegalArgumentException("会话不存在或无权删除");
         }
 
+        // ★ 先同步读取对话历史（必须在删除之前读取，否则数据会丢失）
+        List<Message> history = chatMemoryRepository.findByConversationId(request.getSessionId());
+
+        // ★ 异步提炼用户画像（长期记忆），传入预读取的历史消息
+        if (history != null && !history.isEmpty()) {
+            userProfileService.extractProfileAsync(request.getUserId(), history);
+        }
+
+        // 删除会话（会清除 Redis 中的 ChatMemory）
         sessionManager.deleteSession(request.getUserId(), request.getSessionId());
 
         SessionDeleteResponse data = new SessionDeleteResponse(
             request.getSessionId(),
             System.currentTimeMillis(),
-            "会话删除成功"
+            "会话删除成功，画像提炼已在后台进行"
         );
         return ApiResponse.success(data);
     }
+
+    /**
+     * 手动触发画像提炼接口
+     * 用于前端在用户关闭浏览器或切换会话时，主动将这段对话记忆进行结转
+     */
+    @PostMapping("/session/extract-profile")
+    public ApiResponse<String> extractProfile(@RequestBody SessionDeleteRequest request) {
+        // 验证会话是否存在且属于该用户
+        String sessionUserId = sessionManager.getUserIdBySession(request.getSessionId());
+        if (sessionUserId == null || !sessionUserId.equals(request.getUserId())) {
+            return ApiResponse.success("会话无效，可能已过期或不存在");
+        }
+
+        // 同步读取对话历史
+        List<Message> history = chatMemoryRepository.findByConversationId(request.getSessionId());
+
+        // 异步提炼用户画像
+        if (history != null && !history.isEmpty()) {
+            userProfileService.extractProfileAsync(request.getUserId(), history);
+        }
+
+        return ApiResponse.success("画像提炼任务已提交");
+    }
+
+    /**
+     * 获取会话历史记录
+     * 切换会话时提取该会话的历史对话在前端显示
+     */
+    @GetMapping("/session/history")
+    public ApiResponse<List<java.util.Map<String, Object>>> getHistory(@org.springframework.web.bind.annotation.RequestParam String sessionId) {
+        List<Message> history = chatMemoryRepository.findByConversationId(sessionId);
+        List<java.util.Map<String, Object>> result = new java.util.ArrayList<>();
+        if (history != null) {
+            for (Message msg : history) {
+                String roleVal = msg.getMessageType().getValue().toLowerCase();
+                // 仅返回用户和助手的消息，忽略 system
+                if (roleVal.equals("user") || roleVal.equals("assistant")) {
+                    java.util.Map<String, Object> map = new java.util.HashMap<>();
+                    map.put("role", roleVal.equals("user") ? "user" : "ai");
+                    map.put("content", msg.getText());
+                    result.add(map);
+                }
+            }
+        }
+        return ApiResponse.success(result);
+    }
+
 
     /**
      * 创建新会话接口
@@ -115,11 +176,11 @@ public class AiController {
     }
 
     /**
-     * 新增多轮对话接口
-     * 支持更丰富的上下文管理和会话控制
+     * 新增多轮对话接口（流式输出）
+     * 支持更丰富的上下文管理和会话控制，以 SSE 流式返回 token
      */
-    @PostMapping(value = "/multi-turn/chat", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ApiResponse<MultiTurnChatResponse> multiTurnChat(@RequestBody MultiTurnChatRequest request) {
+    @PostMapping(value = "/multi-turn/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<String> multiTurnChat(@RequestBody MultiTurnChatRequest request) {
         // 验证会话是否存在
         if (!sessionManager.sessionExists(request.getSessionId())) {
             throw new IllegalArgumentException("会话不存在或已过期");
@@ -141,44 +202,33 @@ public class AiController {
         // 2. 用改写后的查询做向量粗召回 + Rerank 精排
         RetrievalResult result = ragRetrievalService.retrieve(rewrittenQuery);
 
-        String systemPrompt;
+        // 3. 构建 System Prompt（注入长期记忆 + 知识库参考）
+        StringBuilder systemPrompt = new StringBuilder("你是一个智能问答助手。");
 
-        if (result.isHit()) {
-            // 构建增强提示词（重要：知识库信息必须放在 system 中，防止它被错误地当作 user 的历史发言记入 Redis）
-            systemPrompt = String.format("""
-你是一个智能问答助手，能够基于提供的知识库信息进行专业回答。
-当你认为知识库信息对回答有帮助时，请优先使用它们。
-
-【知识库参考】
-%s
-""", result.getKnowledgeText());
-        } else {
-            // 普通问答
-            systemPrompt = "你是一个智能问答助手。请提供专业、准确的回答。";
+        // ★ 注入用户画像（长期记忆），让 AI 了解用户的背景和偏好
+        String userProfile = userProfileService.getProfile(userId);
+        if (userProfile != null) {
+            systemPrompt.append("\n\n【用户背景与偏好（长期记忆）】\n")
+                       .append(userProfile)
+                       .append("\n请根据上述用户特征调整你的回答风格和内容。");
         }
 
-        // 3. 构建AI调用
-        ChatClientResponse response = deepchatClient.prompt()
+        if (result.isHit()) {
+            // 知识库信息放在 system 中，防止污染 ChatMemory
+            systemPrompt.append(String.format("\n\n能够基于提供的知识库信息进行专业回答。\n当你认为知识库信息对回答有帮助时，请优先使用它们。\n\n【知识库参考】\n%s",
+                    result.getKnowledgeText()));
+        } else {
+            systemPrompt.append("\n请提供专业、准确的回答。");
+        }
+
+        // 4. 构建AI调用 — 使用 .stream() 替代 .call() 以流式返回
+        return deepchatClient.prompt()
                 .advisors(advisorSpec ->
                     advisorSpec.param(CONVERSATION_ID, request.getSessionId()))
                 .tools(dateTimeTools)
-                .system(systemPrompt)     // 巨量资料和规则放在系统层
-                .user(originalQuery)      // 用户的输入仅仅是这句短话
-                .call()
-                .chatClientResponse();
-
-        // 4. 获取回复内容
-        String reply = response.chatResponse().getResult().getOutput().getText();
-
-        // 5. 构建响应
-        MultiTurnChatResponse data = new MultiTurnChatResponse(
-                request.getSessionId(),
-                request.getTurnCount() + 1,
-                reply,
-                result.isHit(),
-                result.getFinalCount(),
-                System.currentTimeMillis()
-        );
-        return ApiResponse.success(data);
+                .system(systemPrompt.toString())
+                .user(originalQuery)
+                .stream()
+                .content();
     }
 }

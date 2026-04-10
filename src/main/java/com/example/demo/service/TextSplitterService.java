@@ -1,5 +1,6 @@
 package com.example.demo.service;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
@@ -17,6 +18,11 @@ import java.util.stream.Collectors;
 @Slf4j
 public class TextSplitterService {
 
+    /**
+     * -- GETTER --
+     *  获取当前配置的默认 chunk size
+     */
+    @Getter
     @Value("${chunking.token.default-chunk-size:800}")
     private int defaultChunkSize;
 
@@ -113,10 +119,4 @@ public class TextSplitterService {
         return chunks;
     }
 
-    /**
-     * 获取当前配置的默认 chunk size
-     */
-    public int getDefaultChunkSize() {
-        return defaultChunkSize;
-    }
 }
