@@ -1,0 +1,214 @@
+package com.example.demo.service;
+
+import com.alibaba.cloud.ai.memory.redis.RedisChatMemoryRepository;
+import com.example.demo.Config.DateTimeTools;
+import com.example.demo.Config.SessionManager;
+import com.example.demo.model.dto.ApiResponse;
+import com.example.demo.model.dto.MultiTurnChatRequest;
+import com.example.demo.model.dto.RetrievalResult;
+import com.example.demo.model.dto.SessionCreateRequest;
+import com.example.demo.model.dto.SessionCreateResponse;
+import com.example.demo.model.dto.SessionDeleteRequest;
+import com.example.demo.model.dto.SessionDeleteResponse;
+import com.example.demo.model.dto.SessionListRequest;
+import com.example.demo.model.dto.SessionListResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AiService {
+
+    private final ChatClient deepchatClient;
+    private final RagRetrievalService ragRetrievalService;
+    private final QueryRewriteService queryRewriteService;
+    private final RetrievalSubQueryService retrievalSubQueryService;
+    private final UserProfileService userProfileService;
+    private final DateTimeTools dateTimeTools;
+    private final RedisChatMemoryRepository chatMemoryRepository;
+    private final SessionManager sessionManager;
+
+    public String chat(String msg, String userId) {
+        RetrievalResult result = ragRetrievalService.retrieve(msg, userId);
+        String systemPrompt = buildSingleTurnSystemPrompt(result);
+
+        return deepchatClient.prompt()
+                .advisors(advisorSpec -> advisorSpec.param(CONVERSATION_ID, userId))
+                .tools(dateTimeTools)
+                .system(systemPrompt)
+                .user(msg)
+                .call()
+                .content();
+    }
+
+    public ApiResponse<SessionListResponse> getUserSessions(SessionListRequest request) {
+        Set<String> sessions = sessionManager.getUserSessions(request.getUserId());
+        SessionListResponse data = new SessionListResponse(
+                request.getUserId(),
+                sessions,
+                sessions.size(),
+                System.currentTimeMillis()
+        );
+        return ApiResponse.success(data);
+    }
+
+    public ApiResponse<SessionDeleteResponse> deleteSession(SessionDeleteRequest request) {
+        validateSessionOwnership(request.getUserId(), request.getSessionId());
+        List<Message> history = getHistoryMessages(request.getSessionId());
+        submitProfileExtractionIfNeeded(request.getUserId(), history);
+        sessionManager.deleteSession(request.getUserId(), request.getSessionId());
+
+        SessionDeleteResponse data = new SessionDeleteResponse(
+                request.getSessionId(),
+                System.currentTimeMillis(),
+                "会话删除成功，画像提炼已在后台进行"
+        );
+        return ApiResponse.success(data);
+    }
+
+    public ApiResponse<String> extractProfile(SessionDeleteRequest request) {
+        if (!isSessionOwnedByUser(request.getUserId(), request.getSessionId())) {
+            return ApiResponse.success("会话无效，可能已过期或不存在");
+        }
+
+        List<Message> history = getHistoryMessages(request.getSessionId());
+        submitProfileExtractionIfNeeded(request.getUserId(), history);
+        return ApiResponse.success("画像提炼任务已提交");
+    }
+
+    public ApiResponse<List<Map<String, Object>>> getHistory(String sessionId) {
+        return ApiResponse.success(toHistoryResponse(getHistoryMessages(sessionId)));
+    }
+
+    public ApiResponse<SessionCreateResponse> createSession(SessionCreateRequest request) {
+        String sessionId = sessionManager.createSession(request.getUserId());
+        SessionCreateResponse data = new SessionCreateResponse(
+                sessionId,
+                System.currentTimeMillis(),
+                "会话创建成功"
+        );
+        return ApiResponse.success(data);
+    }
+
+    public Flux<String> multiTurnChat(MultiTurnChatRequest request) {
+        String userId = requireActiveSessionUser(request.getSessionId());
+        String originalQuery = request.getMessage();
+        String rewrittenQuery = queryRewriteService.rewrite(request.getSessionId(), originalQuery);
+        log.info("多轮对话检索 - 原始查询: '{}', 改写后: '{}'", originalQuery, rewrittenQuery);
+
+        List<String> retrievalQueries = retrievalSubQueryService.generateSubQueries(rewrittenQuery, originalQuery);
+        RetrievalResult result = ragRetrievalService.retrieveWithMultiPathRecall(
+                rewrittenQuery,
+                retrievalQueries,
+                userId
+        );
+
+        String systemPrompt = buildMultiTurnSystemPrompt(userId, result);
+
+        return deepchatClient.prompt()
+                .advisors(advisorSpec -> advisorSpec.param(CONVERSATION_ID, request.getSessionId()))
+                .tools(dateTimeTools)
+                .system(systemPrompt)
+                .user(originalQuery)
+                .stream()
+                .content();
+    }
+
+    private String buildSingleTurnSystemPrompt(RetrievalResult result) {
+        String systemPrompt = "你是一个智能问答系统。\n"
+                + "你可以使用系统提供的工具来获取实时信息。\n"
+                + "当问题涉及当前时间、日期等实时数据时，请调用工具。";
+        if (!result.isHit()) {
+            return systemPrompt;
+        }
+        return systemPrompt + "\n\n以下是一些可能有帮助的参考资料，请优先使用它们回答问题：\n\n【参考资料】\n"
+                + result.getKnowledgeText();
+    }
+
+    private String buildMultiTurnSystemPrompt(String userId, RetrievalResult result) {
+        StringBuilder systemPrompt = new StringBuilder("你是一个智能问答助手。");
+        String userProfile = userProfileService.getProfile(userId);
+        if (userProfile != null) {
+            systemPrompt.append("\n\n【用户背景与偏好（长期记忆）】\n")
+                    .append(userProfile)
+                    .append("\n请根据上述用户特征调整你的回答风格和内容。");
+        }
+
+        if (result.isHit()) {
+            systemPrompt.append(String.format(
+                    "\n\n能够基于提供的知识库信息进行专业回答。\n当你认为知识库信息对回答有帮助时，请优先使用它们。\n\n【知识库参考】\n%s",
+                    result.getKnowledgeText()
+            ));
+        } else {
+            systemPrompt.append("\n请提供专业、准确的回答。");
+        }
+        return systemPrompt.toString();
+    }
+
+    private String requireActiveSessionUser(String sessionId) {
+        if (!sessionManager.sessionExists(sessionId)) {
+            throw new IllegalArgumentException("会话不存在或已过期");
+        }
+
+        String userId = sessionManager.getUserIdBySession(sessionId);
+        if (userId == null) {
+            throw new IllegalArgumentException("无法获取会话用户信息");
+        }
+
+        sessionManager.updateSessionActivity(userId, sessionId);
+        return userId;
+    }
+
+    private boolean isSessionOwnedByUser(String userId, String sessionId) {
+        String sessionUserId = sessionManager.getUserIdBySession(sessionId);
+        return sessionUserId != null && sessionUserId.equals(userId);
+    }
+
+    private void validateSessionOwnership(String userId, String sessionId) {
+        if (!isSessionOwnedByUser(userId, sessionId)) {
+            throw new IllegalArgumentException("会话不存在或无权删除");
+        }
+    }
+
+    private List<Message> getHistoryMessages(String sessionId) {
+        return chatMemoryRepository.findByConversationId(sessionId);
+    }
+
+    private void submitProfileExtractionIfNeeded(String userId, List<Message> history) {
+        if (history != null && !history.isEmpty()) {
+            userProfileService.extractProfileAsync(userId, history);
+        }
+    }
+
+    private List<Map<String, Object>> toHistoryResponse(List<Message> history) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (history == null) {
+            return result;
+        }
+
+        for (Message message : history) {
+            String roleValue = message.getMessageType().getValue().toLowerCase();
+            if (!roleValue.equals("user") && !roleValue.equals("assistant")) {
+                continue;
+            }
+            Map<String, Object> item = new HashMap<>();
+            item.put("role", roleValue.equals("user") ? "user" : "ai");
+            item.put("content", message.getText());
+            result.add(item);
+        }
+        return result;
+    }
+}
