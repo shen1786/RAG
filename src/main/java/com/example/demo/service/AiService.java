@@ -16,6 +16,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
+import com.example.demo.model.dto.HierarchyHit;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -89,7 +91,8 @@ public class AiService {
         return ApiResponse.success("画像提炼任务已提交");
     }
 
-    public ApiResponse<List<Map<String, Object>>> getHistory(String sessionId) {
+    public ApiResponse<List<Map<String, Object>>> getHistory(String userId, String sessionId) {
+        validateSessionOwnership(userId, sessionId);
         return ApiResponse.success(toHistoryResponse(getHistoryMessages(sessionId)));
     }
 
@@ -103,8 +106,11 @@ public class AiService {
         return ApiResponse.success(data);
     }
 
-    public Flux<String> multiTurnChat(MultiTurnChatRequest request) {
+    public Flux<ServerSentEvent<String>> multiTurnChat(MultiTurnChatRequest request) {
         String userId = requireActiveSessionUser(request.getSessionId());
+        if (request.getUserId() != null && !request.getUserId().equals(userId)) {
+            throw new IllegalArgumentException("会话用户与当前登录用户不一致");
+        }
         String originalQuery = request.getMessage();
         String rewrittenQuery = queryRewriteService.rewrite(request.getSessionId(), originalQuery);
         log.info("多轮对话检索 - 原始查询: '{}', 改写后: '{}'", originalQuery, rewrittenQuery);
@@ -118,13 +124,66 @@ public class AiService {
 
         String systemPrompt = buildMultiTurnSystemPrompt(userId, result);
 
-        return deepchatClient.prompt()
+        // 1. 组装引文 JSON
+        List<Map<String, Object>> citations = new ArrayList<>();
+        if (result.getHierarchyHits() != null) {
+            for (int i = 0; i < result.getHierarchyHits().size(); i++) {
+                HierarchyHit hit = result.getHierarchyHits().get(i);
+                Map<String, Object> cite = new HashMap<>();
+                cite.put("sourceName", hit.getFilename() != null ? hit.getFilename() : "");
+                cite.put("minioUrl", hit.getMinioUrl() != null ? hit.getMinioUrl() : "");
+                cite.put("docTitle", hit.getDocTitle() != null ? hit.getDocTitle() : "");
+                cite.put("sectionTitle", hit.getSectionTitle() != null ? hit.getSectionTitle() : "");
+                cite.put("chunkIndex", hit.getLeafChunkIndex() != null ? hit.getLeafChunkIndex() + 1 : null);
+                
+                String label;
+                if (hit.getSectionTitle() != null && !hit.getSectionTitle().isBlank()) {
+                    label = hit.getSectionTitle();
+                } else if (hit.getLeafChunkIndex() != null) {
+                    label = "分段 " + (hit.getLeafChunkIndex() + 1);
+                } else {
+                    label = "段落 " + (i + 1);
+                }
+                cite.put("label", label);
+                cite.put("text", hit.getContent() != null ? hit.getContent() : "");
+                
+                double scoreDouble = hit.getLeafScore() != null ? hit.getLeafScore() : 0.0;
+                int scorePercent = (int) Math.round(scoreDouble * 100);
+                cite.put("score", scorePercent);
+                
+                citations.add(cite);
+            }
+        }
+
+        String citationsJson;
+        try {
+            citationsJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(citations);
+        } catch (Exception e) {
+            log.error("序列化引文失败", e);
+            citationsJson = "[]";
+        }
+
+        // 2. 发送引文事件，紧接着推送大模型文本 Token
+        ServerSentEvent<String> citationsEvent = ServerSentEvent.<String>builder()
+                .event("citations")
+                .data(citationsJson)
+                .build();
+
+        Flux<ServerSentEvent<String>> citationsFlux = Flux.just(citationsEvent);
+
+        Flux<ServerSentEvent<String>> textFlux = deepchatClient.prompt()
                 .advisors(advisorSpec -> advisorSpec.param(CONVERSATION_ID, request.getSessionId()))
                 .tools(dateTimeTools)
                 .system(systemPrompt)
                 .user(originalQuery)
                 .stream()
-                .content();
+                .content()
+                .map(token -> ServerSentEvent.<String>builder()
+                        .event("message")
+                        .data(token)
+                        .build());
+
+        return Flux.concat(citationsFlux, textFlux);
     }
 
     private String buildSingleTurnSystemPrompt(RetrievalResult result) {
