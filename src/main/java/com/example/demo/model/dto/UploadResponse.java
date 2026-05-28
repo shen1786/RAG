@@ -1,5 +1,6 @@
 package com.example.demo.model.dto;
 
+import com.example.demo.model.DocumentFileStatus;
 import com.example.demo.model.SourceType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,16 +17,16 @@ public class UploadResponse {
     private boolean success;
     private String message;
     private String sourceId;
+    private String fileHash;
     private String filename;
     private SourceType sourceType;
+    private DocumentFileStatus status;
+    private String errorMessage;
     private int chunksCreated;
     private String minioPath;
     private String minioUrl;
     private List<String> unitIds;
 
-    /**
-     * 同步模式成功响应（保留用于兼容）
-     */
     public static UploadResponse success(String sourceId, String filename, SourceType sourceType,
                                          int chunksCreated, String minioPath, String minioUrl, List<String> unitIds) {
         return UploadResponse.builder()
@@ -34,6 +35,7 @@ public class UploadResponse {
                 .sourceId(sourceId)
                 .filename(filename)
                 .sourceType(sourceType)
+                .status(DocumentFileStatus.SUCCESS)
                 .chunksCreated(chunksCreated)
                 .minioPath(minioPath)
                 .minioUrl(minioUrl)
@@ -41,13 +43,12 @@ public class UploadResponse {
                 .build();
     }
 
-    /**
-     * 错误响应
-     */
     public static UploadResponse error(String message) {
         return UploadResponse.builder()
                 .success(false)
                 .message(message)
+                .status(DocumentFileStatus.FAILED)
+                .errorMessage(message)
                 .build();
     }
 }

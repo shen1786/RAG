@@ -85,13 +85,13 @@ public class RagDocumentApplicationService {
         }
     }
 
-    public ApiResponse<DeleteTaskResponse> deleteDocumentByFilename(String filename) {
+    public ApiResponse<DeleteTaskResponse> deleteDocumentByFilename(String userId, String filename) {
         if (filename == null || filename.trim().isEmpty()) {
             return ApiResponse.validationError("文件名不能为空");
         }
 
         try {
-            String taskId = ragUnitService.deleteDocumentAsyncByFilename(filename);
+            String taskId = ragUnitService.deleteDocumentAsyncByFilename(userId, filename);
             return ApiResponse.success("删除任务已提交", DeleteTaskResponse.builder()
                     .taskId(taskId)
                     .filename(filename)

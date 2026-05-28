@@ -4,125 +4,98 @@ import com.alibaba.cloud.ai.document.DocumentWithScore;
 import com.alibaba.cloud.ai.model.RerankModel;
 import com.alibaba.cloud.ai.model.RerankRequest;
 import com.alibaba.cloud.ai.model.RerankResponse;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.example.demo.Config.HierarchyConfig;
+import com.example.demo.mapper.RagUnitMapper;
+import com.example.demo.model.RagNodeType;
+import com.example.demo.model.RagUnit;
+import com.example.demo.model.dto.HierarchyHit;
+import com.example.demo.model.dto.RetrievalMode;
 import com.example.demo.model.dto.RetrievalResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
-/**
- * RAG 智能检索服务
- * 封装「向量粗召回 → Rerank 精排」两阶段检索流程，供多处复用
- */
 @Service
 @Slf4j
 public class RagRetrievalService {
 
-    @Autowired
-    private VectorStore vectorStore;
+    private final VectorStore leafVectorStore;
+    private final VectorStore summaryVectorStore;
+    private final RerankModel rerankModel;
+    private final RagUnitMapper ragUnitMapper;
+    private final RagUnitService ragUnitService;
+    private final HierarchyConfig hierarchyConfig;
+    private final Executor retrievalTaskExecutor;
 
-    @Autowired
-    private RerankModel rerankModel;
-
-    // ==================== 可配置参数（application.yaml） ====================
-
-    /** 粗召回阶段返回的候选数量（Rerank 前） */
     @Value("${rag.retrieval.candidate-top-k:15}")
     private int candidateTopK;
 
-    /** 粗召回阶段的最低相似度阈值（过滤明显无关的结果） */
     @Value("${rag.retrieval.similarity-threshold:0.3}")
     private double similarityThreshold;
 
-    /** Rerank 后最终返回的文档数量 */
     @Value("${rag.retrieval.final-top-k:5}")
     private int finalTopK;
 
-    /** 判定"命中知识库"的最低 Rerank 分数 */
     @Value("${rag.retrieval.hit-score-threshold:0.35}")
     private double hitScoreThreshold;
 
-    // ==================== 核心方法 ====================
-
-    /**
-     * 执行两阶段检索：向量粗召回 + Rerank 精排（使用默认参数）
-     *
-     * @param query 用户查询文本
-     * @return 检索结果
-     */
-    public RetrievalResult retrieve(String query) {
-        return retrieve(query, finalTopK, hitScoreThreshold);
+    public RagRetrievalService(@Qualifier("leafVectorStore") VectorStore leafVectorStore,
+                               @Qualifier("summaryVectorStore") VectorStore summaryVectorStore,
+                               RerankModel rerankModel,
+                               RagUnitMapper ragUnitMapper,
+                               RagUnitService ragUnitService,
+                               HierarchyConfig hierarchyConfig,
+                               @Qualifier("mvcTaskExecutor") Executor retrievalTaskExecutor) {
+        this.leafVectorStore = leafVectorStore;
+        this.summaryVectorStore = summaryVectorStore;
+        this.rerankModel = rerankModel;
+        this.ragUnitMapper = ragUnitMapper;
+        this.ragUnitService = ragUnitService;
+        this.hierarchyConfig = hierarchyConfig;
+        this.retrievalTaskExecutor = retrievalTaskExecutor;
     }
 
-    /**
-     * 执行两阶段检索（可自定义参数）
-     * <p>
-     * 流程：
-     * 1. 使用向量相似度从知识库中粗召回 candidateTopK 条候选文档
-     * 2. 调用 DashScope Rerank 模型对候选文档进行精排
-     * 3. 取精排后的 top finalTopK 条作为最终结果
-     * 4. 根据最高分判断是否"命中"知识库
-//     *
-     * param query        用户查询文本
-     * @param topK         最终返回的文档数量
-     * @param hitThreshold 命中阈值（Rerank 分数）
-     * @return 检索结果
-     */
+    public RetrievalResult retrieve(String query) {
+        return retrieve(query, null, finalTopK, hitScoreThreshold);
+    }
+
+    public RetrievalResult retrieve(String query, String userId) {
+        return retrieve(query, userId, finalTopK, hitScoreThreshold);
+    }
+
     public RetrievalResult retrieve(String query, int topK, double hitThreshold) {
+        return retrieve(query, null, topK, hitScoreThreshold);
+    }
+
+    public RetrievalResult retrieve(String query, String userId, int topK, double hitThreshold) {
         long startTime = System.currentTimeMillis();
 
         try {
-            // ========== 第一阶段：向量粗召回 ==========
-            SearchRequest searchRequest = SearchRequest.builder()
-                    .query(query)
-                    .topK(candidateTopK)
-                    .similarityThreshold(similarityThreshold)
-                    .build();
-//
-            List<Document> candidates = vectorStore.similaritySearch(searchRequest);
-            log.info("向量粗召回完成: query='{}', 候选数={}", truncate(query, 50), candidates.size());
-
-            if (candidates.isEmpty()) {
-                long duration = System.currentTimeMillis() - startTime;
-                log.info("未召回任何候选文档, 耗时={}ms", duration);
-                return RetrievalResult.empty(duration);
+            // 优先尝试层次检索；任一阶段拿不到有效结果时，再平滑回退到平铺检索。
+            RetrievalResult hierarchical = retrieveHierarchically(query, userId, topK, hitThreshold, startTime);
+            if (hierarchical != null) {
+                return hierarchical;
             }
-
-            // ========== 第二阶段：Rerank 精排 ==========
-            RerankResult rerankResult = rerank(query, candidates, topK);
-
-            // ========== 判断是否命中 ==========
-            boolean hit = rerankResult.topScore != null && rerankResult.topScore >= hitThreshold;
-
-            String knowledgeText = rerankResult.documents.stream()
-                    .map(Document::getText)
-                    .collect(Collectors.joining("\n\n---\n\n"));
-
-            long duration = System.currentTimeMillis() - startTime;
-
-            log.info("检索完成: hit={}, 候选数={}, 精排后={}, 最高分={}, 耗时={}ms",
-                    hit,
-                    candidates.size(),
-                    rerankResult.documents.size(),
-                    rerankResult.topScore != null ? String.format("%.4f", rerankResult.topScore) : "N/A",
-                    duration);
-
-            return RetrievalResult.builder()
-                    .documents(rerankResult.documents)
-                    .hit(hit)
-                    .knowledgeText(knowledgeText)
-                    .candidateCount(candidates.size())
-                    .finalCount(rerankResult.documents.size())
-                    .durationMs(duration)
-                    .build();
-
+            return retrieveFlat(query, userId, topK, hitThreshold, startTime, true);
         } catch (Exception e) {
             long duration = System.currentTimeMillis() - startTime;
             log.error("检索过程发生异常, 耗时={}ms", duration, e);
@@ -130,14 +103,84 @@ public class RagRetrievalService {
         }
     }
 
-    /**
-     * 仅执行向量检索（不做 Rerank）
-     * 适用于对延迟要求极高、可接受精度稍低的场景
-     *
-     * @param query 用户查询文本
-     * @param topK  返回数量
-     * @return 检索结果
-     */
+    public RetrievalResult retrieveWithMultiPathRecall(String primaryQuery, List<String> recallQueries, String userId) {
+        return retrieveWithMultiPathRecall(primaryQuery, recallQueries, userId, finalTopK, hitScoreThreshold);
+    }
+
+    public RetrievalResult retrieveWithMultiPathRecall(String primaryQuery,
+                                                       List<String> recallQueries,
+                                                       String userId,
+                                                       int topK,
+                                                       double hitThreshold) {
+        long startTime = System.currentTimeMillis();
+        List<String> normalizedQueries = normalizeQueries(primaryQuery, recallQueries);
+
+        try {
+            if (normalizedQueries.isEmpty()) {
+                return RetrievalResult.empty(System.currentTimeMillis() - startTime);
+            }
+
+            RetrievalResult primaryResult = retrieve(normalizedQueries.get(0), userId, topK, hitThreshold);
+            if (normalizedQueries.size() == 1) {
+                return primaryResult;
+            }
+
+            List<Document> mergedCandidates = collectFlatCandidates(normalizedQueries, userId);
+            if (mergedCandidates.isEmpty()) {
+                long duration = System.currentTimeMillis() - startTime;
+                log.info("多路召回未召回任何候选文档, queries={}, 耗时={}ms", normalizedQueries.size(), duration);
+                return RetrievalResult.empty(duration);
+            }
+
+            ScoredDocumentsResult rerankResult = rerank(normalizedQueries.get(0), mergedCandidates, topK);
+            boolean hit = rerankResult.topScore != null && rerankResult.topScore >= hitThreshold;
+            String knowledgeText = rerankResult.documents.stream()
+                    .map(Document::getText)
+                    .collect(Collectors.joining("\n\n---\n\n"));
+
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("多路召回完成: queries={}, mergedCandidates={}, final={}, topScore={}, 耗时={}ms",
+                    normalizedQueries.size(),
+                    mergedCandidates.size(),
+                    rerankResult.documents.size(),
+                    rerankResult.topScore != null ? String.format("%.4f", rerankResult.topScore) : "N/A",
+                    duration);
+
+            List<String> leafIds = extractIds(rerankResult.documents);
+            List<RagUnit> leafUnits = selectUnitsByIds(leafIds);
+            Map<String, RagUnit> leafUnitMap = toUnitMap(leafUnits);
+            List<HierarchyHit> hierarchyHits = new ArrayList<>();
+            for (Document doc : rerankResult.documents) {
+                RagUnit leafUnit = leafUnitMap.get(doc.getId());
+                if (leafUnit == null) continue;
+                hierarchyHits.add(HierarchyHit.builder()
+                        .sourceId(leafUnit.getSourceId())
+                        .leafUnitId(leafUnit.getId())
+                        .leafChunkIndex(leafUnit.getChunkIndex())
+                        .leafScore(rerankResult.scoreById.get(leafUnit.getId()))
+                        .content(leafUnit.getContent())
+                        .filename(leafUnit.getFilename())
+                        .minioUrl(leafUnit.getMinioUrl())
+                        .build());
+            }
+
+            return RetrievalResult.builder()
+                    .documents(rerankResult.documents)
+                    .hit(hit)
+                    .retrievalMode(RetrievalMode.FLAT_FALLBACK)
+                    .knowledgeText(knowledgeText)
+                    .candidateCount(mergedCandidates.size())
+                    .finalCount(rerankResult.documents.size())
+                    .durationMs(duration)
+                    .hierarchyHits(hierarchyHits)
+                    .build();
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            log.error("多路召回过程发生异常, 耗时={}ms", duration, e);
+            return RetrievalResult.empty(duration);
+        }
+    }
+
     public RetrievalResult retrieveWithoutRerank(String query, int topK) {
         long startTime = System.currentTimeMillis();
 
@@ -148,8 +191,7 @@ public class RagRetrievalService {
                     .similarityThreshold(similarityThreshold)
                     .build();
 
-            List<Document> docs = vectorStore.similaritySearch(searchRequest);
-
+            List<Document> docs = leafVectorStore.similaritySearch(searchRequest);
             boolean hit = !docs.isEmpty()
                     && docs.get(0).getScore() != null
                     && docs.get(0).getScore() > 0.7;
@@ -163,12 +205,13 @@ public class RagRetrievalService {
             return RetrievalResult.builder()
                     .documents(docs)
                     .hit(hit)
+                    .retrievalMode(RetrievalMode.FLAT_FALLBACK)
                     .knowledgeText(knowledgeText)
                     .candidateCount(docs.size())
                     .finalCount(docs.size())
                     .durationMs(duration)
+                    .hierarchyHits(List.of())
                     .build();
-
         } catch (Exception e) {
             long duration = System.currentTimeMillis() - startTime;
             log.error("向量检索异常", e);
@@ -176,73 +219,397 @@ public class RagRetrievalService {
         }
     }
 
-    // ==================== 内部方法 ====================
+    private RetrievalResult retrieveHierarchically(String query, String userId, int topK, double hitThreshold, long startTime) {
+        // 第一步先从摘要向量库召回候选节点，缩小后续展开范围。
+        SearchRequest summarySearch = SearchRequest.builder()
+                .query(query)
+                .topK(hierarchyConfig.getSummaryCandidateTopK())
+                .similarityThreshold(similarityThreshold)
+                .filterExpression(buildUserFilterExpression(userId))
+                .build();
 
-    /**
-     * Rerank 结果的内部封装（因为 Document 没有 setScore，需要单独传递分数）
-     */
-    private static class RerankResult {
-        final List<Document> documents;
-        final Double topScore;
-
-        RerankResult(List<Document> documents, Double topScore) {
-            this.documents = documents;
-            this.topScore = topScore;
+        List<Document> summaryCandidates = summaryVectorStore.similaritySearch(summarySearch);
+        if (summaryCandidates.isEmpty()) {
+            log.info("层次检索未召回摘要节点，回退到叶子平铺检索");
+            return null;
         }
+
+        List<RagUnit> summaryUnits = selectUnitsByIds(extractIds(summaryCandidates));
+        if (summaryUnits.isEmpty()) {
+            log.info("层次检索摘要候选无法映射到节点，回退到叶子平铺检索");
+            return null;
+        }
+
+        // 第二步把命中的摘要节点映射回真实树节点，再决定展开 section 还是 doc 的子节点。
+        Map<String, RagUnit> summaryUnitMap = toUnitMap(summaryUnits);
+        List<RagUnit> expandedSections = expandSectionCandidates(summaryCandidates, summaryUnitMap);
+        if (expandedSections.isEmpty()) {
+            log.info("层次检索无法展开中层节点，回退到叶子平铺检索");
+            return null;
+        }
+
+        List<Document> sectionDocs = buildDocuments(expandedSections);
+        ScoredDocumentsResult sectionRerank = rerank(query, sectionDocs, hierarchyConfig.getMidRerankTopK());
+        if (sectionRerank.documents.isEmpty()) {
+            log.info("层次检索中层 rerank 为空，回退到叶子平铺检索");
+            return null;
+        }
+
+        List<String> sectionIds = extractIds(sectionRerank.documents);
+        // 第三步只下钻命中的 section，避免全量叶子 rerank。
+        List<RagUnit> leafUnits = selectChildrenByParentIds(userId, sectionIds, RagNodeType.LEAF);
+        if (leafUnits.isEmpty()) {
+            log.info("层次检索中层下钻后没有叶子节点，回退到叶子平铺检索");
+            return null;
+        }
+
+        List<Document> leafDocs = buildDocuments(leafUnits);
+        ScoredDocumentsResult leafRerank = rerank(query, leafDocs, Math.min(topK, hierarchyConfig.getLeafRerankTopK()));
+        if (leafRerank.documents.isEmpty()) {
+            log.info("层次检索叶子 rerank 为空，回退到叶子平铺检索");
+            return null;
+        }
+
+        if (leafRerank.topScore == null || leafRerank.topScore < hitThreshold) {
+            log.info("层次检索叶子最高分低于阈值，回退到叶子平铺检索: score={}", leafRerank.topScore);
+            return null;
+        }
+
+        List<RagUnit> finalLeafUnits = selectUnitsByIds(extractIds(leafRerank.documents));
+        Map<String, RagUnit> leafUnitMap = toUnitMap(finalLeafUnits);
+        Map<String, RagUnit> sectionUnitMap = new HashMap<>(toUnitMap(expandedSections));
+
+        Set<String> docIds = new LinkedHashSet<>();
+        for (RagUnit section : expandedSections) {
+            if (section.getParentId() != null) {
+                docIds.add(section.getParentId());
+            }
+        }
+        Map<String, RagUnit> docUnitMap = toUnitMap(selectUnitsByIds(new ArrayList<>(docIds)));
+
+        // 返回层级命中路径，方便上层展示“命中了哪篇文档/哪一节/哪一块叶子”。
+        List<HierarchyHit> hierarchyHits = buildHierarchyHits(
+                leafRerank.documents,
+                leafUnitMap,
+                sectionUnitMap,
+                docUnitMap,
+                sectionRerank.scoreById,
+                leafRerank.scoreById
+        );
+
+        long duration = System.currentTimeMillis() - startTime;
+        String knowledgeText = leafRerank.documents.stream()
+                .map(Document::getText)
+                .collect(Collectors.joining("\n\n---\n\n"));
+
+        log.info("层次检索完成: summaryCandidates={}, expandedSections={}, finalLeaves={}, topScore={}, 耗时={}ms",
+                summaryCandidates.size(),
+                expandedSections.size(),
+                leafRerank.documents.size(),
+                leafRerank.topScore != null ? String.format("%.4f", leafRerank.topScore) : "N/A",
+                duration);
+
+        return RetrievalResult.builder()
+                .documents(leafRerank.documents)
+                .hit(true)
+                .retrievalMode(RetrievalMode.HIERARCHICAL)
+                .knowledgeText(knowledgeText)
+                .candidateCount(summaryCandidates.size())
+                .finalCount(leafRerank.documents.size())
+                .durationMs(duration)
+                .hierarchyHits(hierarchyHits)
+                .build();
     }
 
-    /**
-     * 调用 Rerank 模型对候选文档进行精排
-     *
-     * @param query      用户查询
-     * @param candidates 候选文档列表
-     * @param topK       取前几条
-     * @return 精排后的文档列表和最高分
-     */
-    private RerankResult rerank(String query, List<Document> candidates, int topK) {
-        try {
-            // 构建 Rerank 请求
-            RerankRequest request = new RerankRequest(query, candidates);
+    private RetrievalResult retrieveFlat(String query,
+                                         String userId,
+                                         int topK,
+                                         double hitThreshold,
+                                         long startTime,
+                                         boolean fromFallback) {
+        // 平铺模式只查叶子库，既可以作为兜底，也可以作为关闭层次检索时的默认路径。
+        SearchRequest searchRequest = SearchRequest.builder()
+                .query(query)
+                .topK(candidateTopK)
+                .similarityThreshold(similarityThreshold)
+                .filterExpression(buildUserFilterExpression(userId))
+                .build();
 
-            // 调用 Rerank 模型
+        List<Document> candidates = leafVectorStore.similaritySearch(searchRequest);
+        if (candidates.isEmpty()) {
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("未召回任何叶子候选文档, 耗时={}ms", duration);
+            return RetrievalResult.empty(duration);
+        }
+
+        ScoredDocumentsResult rerankResult = rerank(query, candidates, topK);
+        boolean hit = rerankResult.topScore != null && rerankResult.topScore >= hitThreshold;
+        String knowledgeText = rerankResult.documents.stream()
+                .map(Document::getText)
+                .collect(Collectors.joining("\n\n---\n\n"));
+
+        long duration = System.currentTimeMillis() - startTime;
+        log.info("平铺检索完成: hit={}, fallback={}, candidates={}, final={}, topScore={}, 耗时={}ms",
+                hit,
+                fromFallback,
+                candidates.size(),
+                rerankResult.documents.size(),
+                rerankResult.topScore != null ? String.format("%.4f", rerankResult.topScore) : "N/A",
+                duration);
+
+        List<String> leafIds = extractIds(rerankResult.documents);
+        List<RagUnit> leafUnits = selectUnitsByIds(leafIds);
+        Map<String, RagUnit> leafUnitMap = toUnitMap(leafUnits);
+        List<HierarchyHit> hierarchyHits = new ArrayList<>();
+        for (Document doc : rerankResult.documents) {
+            RagUnit leafUnit = leafUnitMap.get(doc.getId());
+            if (leafUnit == null) continue;
+            hierarchyHits.add(HierarchyHit.builder()
+                    .sourceId(leafUnit.getSourceId())
+                    .leafUnitId(leafUnit.getId())
+                    .leafChunkIndex(leafUnit.getChunkIndex())
+                    .leafScore(rerankResult.scoreById.get(leafUnit.getId()))
+                    .content(leafUnit.getContent())
+                    .filename(leafUnit.getFilename())
+                    .minioUrl(leafUnit.getMinioUrl())
+                    .build());
+        }
+
+        return RetrievalResult.builder()
+                .documents(rerankResult.documents)
+                .hit(hit)
+                .retrievalMode(RetrievalMode.FLAT_FALLBACK)
+                .knowledgeText(knowledgeText)
+                .candidateCount(candidates.size())
+                .finalCount(rerankResult.documents.size())
+                .durationMs(duration)
+                .hierarchyHits(hierarchyHits)
+                .build();
+    }
+
+    private List<Document> collectFlatCandidates(List<String> queries, String userId) {
+        List<CompletableFuture<List<Document>>> futures = queries.stream()
+                .map(query -> CompletableFuture.supplyAsync(() -> searchLeafCandidates(query, userId), retrievalTaskExecutor)
+                        .exceptionally(ex -> {
+                            log.warn("子查询召回失败，跳过该路查询: query={}, error={}", query, ex.getMessage());
+                            return List.of();
+                        }))
+                .toList();
+
+        Map<String, Document> deduped = new LinkedHashMap<>();
+        for (List<Document> candidates : futures.stream().map(CompletableFuture::join).toList()) {
+            for (Document candidate : candidates) {
+                String dedupeKey = candidate.getId() != null ? candidate.getId() : candidate.getText();
+                if (dedupeKey == null || dedupeKey.isBlank()) {
+                    continue;
+                }
+                deduped.putIfAbsent(dedupeKey, candidate);
+            }
+        }
+        return new ArrayList<>(deduped.values());
+    }
+
+    private List<Document> searchLeafCandidates(String query, String userId) {
+        SearchRequest searchRequest = SearchRequest.builder()
+                .query(query)
+                .topK(candidateTopK)
+                .similarityThreshold(similarityThreshold)
+                .filterExpression(buildUserFilterExpression(userId))
+                .build();
+        return leafVectorStore.similaritySearch(searchRequest);
+    }
+
+    private List<String> normalizeQueries(String primaryQuery, List<String> recallQueries) {
+        Set<String> normalized = new LinkedHashSet<>();
+        if (primaryQuery != null && !primaryQuery.isBlank()) {
+            normalized.add(primaryQuery.trim());
+        }
+        if (recallQueries != null) {
+            recallQueries.stream()
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(query -> !query.isBlank())
+                    .forEach(normalized::add);
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    private List<RagUnit> expandSectionCandidates(List<Document> summaryCandidates, Map<String, RagUnit> summaryUnitMap) {
+        Set<String> sectionIds = new LinkedHashSet<>();
+        Set<String> docIds = new LinkedHashSet<>();
+
+        for (Document candidate : summaryCandidates) {
+            RagUnit unit = summaryUnitMap.get(candidate.getId());
+            if (unit == null || unit.getNodeType() == null) {
+                continue;
+            }
+            if (unit.getNodeType() == RagNodeType.SECTION_SUMMARY) {
+                sectionIds.add(unit.getId());
+            } else if (unit.getNodeType() == RagNodeType.DOC_SUMMARY) {
+                docIds.add(unit.getId());
+            }
+        }
+
+        // 命中 doc summary 时，需要展开它下面的 section；命中 section summary 时可直接进入下一轮。
+        List<RagUnit> sections = new ArrayList<>();
+        if (!sectionIds.isEmpty()) {
+            sections.addAll(selectUnitsByIds(new ArrayList<>(sectionIds)));
+        }
+        if (!docIds.isEmpty()) {
+            sections.addAll(selectChildrenByParentIds(null, new ArrayList<>(docIds), RagNodeType.SECTION_SUMMARY));
+        }
+
+        Map<String, RagUnit> deduped = new LinkedHashMap<>();
+        for (RagUnit section : sections) {
+            deduped.put(section.getId(), section);
+        }
+        return new ArrayList<>(deduped.values());
+    }
+
+    private List<Document> buildDocuments(List<RagUnit> units) {
+        List<Document> documents = new ArrayList<>();
+        for (RagUnit unit : units) {
+            if (unit.getContent() == null || unit.getContent().isBlank()) {
+                continue;
+            }
+            // 这里重新组装 Document，是为了把数据库节点恢复成可供 rerank 的统一输入。
+            documents.add(new Document(unit.getId(), unit.getContent(),
+                    ragUnitService.buildVectorMetadata(unit, unit.getFilename())));
+        }
+        return documents;
+    }
+
+    private List<HierarchyHit> buildHierarchyHits(List<Document> finalDocs,
+                                                  Map<String, RagUnit> leafUnitMap,
+                                                  Map<String, RagUnit> sectionUnitMap,
+                                                  Map<String, RagUnit> docUnitMap,
+                                                  Map<String, Double> sectionScores,
+                                                  Map<String, Double> leafScores) {
+        List<HierarchyHit> hits = new ArrayList<>();
+        for (Document doc : finalDocs) {
+            RagUnit leafUnit = leafUnitMap.get(doc.getId());
+            if (leafUnit == null) {
+                continue;
+            }
+
+            RagUnit sectionUnit = leafUnit.getParentId() != null
+                    ? sectionUnitMap.get(leafUnit.getParentId())
+                    : null;
+            RagUnit docUnit = sectionUnit != null && sectionUnit.getParentId() != null
+                    ? docUnitMap.get(sectionUnit.getParentId())
+                    : null;
+
+            hits.add(HierarchyHit.builder()
+                    .sourceId(leafUnit.getSourceId())
+                    .docNodeId(docUnit != null ? docUnit.getId() : null)
+                    .docTitle(docUnit != null ? docUnit.getTitle() : null)
+                    .sectionNodeId(sectionUnit != null ? sectionUnit.getId() : null)
+                    .sectionTitle(sectionUnit != null ? sectionUnit.getTitle() : null)
+                    .leafUnitId(leafUnit.getId())
+                    .leafChunkIndex(leafUnit.getChunkIndex())
+                    .summaryScore(sectionUnit != null ? sectionScores.get(sectionUnit.getId()) : null)
+                    .leafScore(leafScores.get(leafUnit.getId()))
+                    .content(leafUnit.getContent())
+                    .filename(leafUnit.getFilename())
+                    .minioUrl(leafUnit.getMinioUrl())
+                    .build());
+        }
+        return hits;
+    }
+
+    private List<RagUnit> selectUnitsByIds(List<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return ragUnitMapper.selectBatchIds(ids);
+    }
+
+    private List<RagUnit> selectChildrenByParentIds(String userId, Collection<String> parentIds, RagNodeType nodeType) {
+        if (parentIds == null || parentIds.isEmpty()) {
+            return List.of();
+        }
+        QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
+        wrapper.in("parent_id", parentIds)
+                .eq("node_type", nodeType.name())
+                .eq(userId != null && !userId.isBlank(), "user_id", userId)
+                .orderByAsc("ordinal")
+                .orderByAsc("chunk_index");
+        return ragUnitMapper.selectList(wrapper);
+    }
+
+    private Map<String, RagUnit> toUnitMap(List<RagUnit> units) {
+        if (units == null || units.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, RagUnit> map = new HashMap<>();
+        for (RagUnit unit : units) {
+            map.put(unit.getId(), unit);
+        }
+        return map;
+    }
+
+    private List<String> extractIds(List<Document> documents) {
+        List<String> ids = new ArrayList<>();
+        for (Document document : documents) {
+            if (document.getId() != null) {
+                ids.add(document.getId());
+            }
+        }
+        return ids;
+    }
+
+    private ScoredDocumentsResult rerank(String query, List<Document> candidates, int topK) {
+        try {
+            RerankRequest request = new RerankRequest(query, candidates);
             RerankResponse response = rerankModel.call(request);
 
-            // 提取重排后的文档，取 top K
             List<DocumentWithScore> scoredDocs = response.getResults();
             List<Document> result = new ArrayList<>();
+            Map<String, Double> scoreById = new HashMap<>();
             Double topScore = null;
 
             for (int i = 0; i < Math.min(topK, scoredDocs.size()); i++) {
                 DocumentWithScore dws = scoredDocs.get(i);
-                result.add(dws.getOutput());
+                Document output = dws.getOutput();
+                result.add(output);
+                scoreById.put(output.getId(), dws.getScore());
                 if (i == 0) {
                     topScore = dws.getScore();
                 }
             }
 
-            log.info("Rerank 精排完成: 输入={}, 输出={}, 最高分={}",
-                    candidates.size(), result.size(),
-                    topScore != null ? String.format("%.4f", topScore) : "N/A");
-
-            return new RerankResult(result, topScore);
-
+            return new ScoredDocumentsResult(result, scoreById, topScore);
         } catch (Exception e) {
-            log.warn("Rerank 调用失败，回退为向量检索原始排序: {}", e.getMessage());
-            // 降级：返回原始排序的前 topK 条，使用向量相似度的 score
+            log.warn("Rerank 调用失败，回退为原始排序: {}", e.getMessage());
             List<Document> fallback = candidates.stream()
                     .limit(topK)
                     .collect(Collectors.toList());
+            Map<String, Double> scoreById = new HashMap<>();
+            for (Document doc : fallback) {
+                scoreById.put(doc.getId(), doc.getScore());
+            }
             Double fallbackScore = (!fallback.isEmpty() && fallback.get(0).getScore() != null)
                     ? fallback.get(0).getScore() : null;
-            return new RerankResult(fallback, fallbackScore);
+            return new ScoredDocumentsResult(fallback, scoreById, fallbackScore);
         }
     }
 
-    /**
-     * 截断字符串用于日志输出
-     */
-    private String truncate(String text, int maxLen) {
-        if (text == null) return "";
-        return text.length() <= maxLen ? text : text.substring(0, maxLen) + "...";
+    private static class ScoredDocumentsResult {
+        private final List<Document> documents;
+        private final Map<String, Double> scoreById;
+        private final Double topScore;
+
+        private ScoredDocumentsResult(List<Document> documents, Map<String, Double> scoreById, Double topScore) {
+            this.documents = documents;
+            this.scoreById = scoreById;
+            this.topScore = topScore;
+        }
+    }
+
+    private String buildUserFilterExpression(String userId) {
+        if (userId == null || userId.isBlank()) {
+            return "";
+        }
+        return "user_id == '" + userId.replace("'", "\\'") + "'";
     }
 }

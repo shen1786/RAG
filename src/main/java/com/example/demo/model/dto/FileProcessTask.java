@@ -35,6 +35,11 @@ public class FileProcessTask implements Serializable {
     private String fileHash;
 
     /**
+     * 上传用户 ID
+     */
+    private String userId;
+
+    /**
      * MIME类型
      */
     private String mimeType;

@@ -2,80 +2,80 @@ package com.example.demo.service.processor;
 
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.SourceType;
-import com.example.demo.service.TextSplitterService;
+import com.example.demo.service.MarkdownStructureChunker;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.tika.metadata.Metadata;
-import org.apache.tika.parser.AutoDetectParser;
-import org.apache.tika.parser.ParseContext;
-import org.apache.tika.parser.Parser;
-import org.apache.tika.sax.BodyContentHandler;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
-import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.UUID;
 
+/**
+ * 纯文本处理器。
+ * <p>
+ * 当前策略：
+ * - 文本文件优先走 MinerU，拿到 Markdown 后做结构化切片
+ * - MinerU 失败时回退到本地原文切片，保证纯文本链路不被外部服务完全阻塞
+ */
 @Service
 @Slf4j
 public class TextProcessor implements MediaProcessor {
 
-    @Autowired
-    private TextSplitterService textSplitterService;
+    private final MinerUClient minerUClient;
+    private final MarkdownStructureChunker markdownStructureChunker;
+
+    public TextProcessor(MinerUClient minerUClient, MarkdownStructureChunker markdownStructureChunker) {
+        this.minerUClient = minerUClient;
+        this.markdownStructureChunker = markdownStructureChunker;
+    }
 
     @Override
     public boolean supports(String mimeType) {
-        return mimeType != null && (
-                mimeType.startsWith("text/") ||
-                mimeType.equals("application/pdf") ||
-                // Word documents
-                mimeType.equals("application/msword") ||
-                mimeType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document") ||
-                // PowerPoint presentations
-                mimeType.equals("application/vnd.ms-powerpoint") ||
-                mimeType.equals("application/vnd.openxmlformats-officedocument.presentationml.presentation") ||
-                // Excel spreadsheets
-                mimeType.equals("application/vnd.ms-excel") ||
-                mimeType.equals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        );
+        if (mimeType == null || mimeType.isBlank()) {
+            return false;
+        }
+        if (isCsvMimeType(mimeType)) {
+            return false;
+        }
+        return mimeType.startsWith("text/")
+                || "application/json".equals(mimeType)
+                || "application/xml".equals(mimeType)
+                || "application/yaml".equals(mimeType)
+                || "application/x-yaml".equals(mimeType);
     }
 
     @Override
     public List<RagUnit> process(InputStream input, String filename, String mimeType) {
-        log.info("Processing text file: {}", filename);
-        List<RagUnit> units = new ArrayList<>();
-
+        log.info("[TextProcessor] 使用本地文本回退链路处理文件: {}", filename);
         try {
-            // Extract text using Tika
-            Parser parser = new AutoDetectParser();
-            BodyContentHandler handler = new BodyContentHandler(-1); // No limit
-            Metadata metadata = new Metadata();
-            ParseContext context = new ParseContext();
-
-            parser.parse(input, handler, metadata, context);
-            String fullText = handler.toString();
-
-            // Chunk text using Spring AI TokenTextSplitter
-            List<String> chunks = textSplitterService.splitText(fullText);
-            String sourceId = UUID.randomUUID().toString(); // Or passed from upload service
-
-            for (int i = 0; i < chunks.size(); i++) {
-                RagUnit unit = new RagUnit();
-                unit.setSourceType(SourceType.TEXT);
-                unit.setContent(chunks.get(i));
-                unit.setChunkIndex(i);
-                unit.setSourceId(sourceId); // Note: This should ideally link to the uploaded file ID
-                // unit.setMinioPath(); // Set by caller or here if we handle upload here
-
-                units.add(unit);
+            String rawText = new String(input.readAllBytes(), StandardCharsets.UTF_8).trim();
+            if (rawText.isBlank()) {
+                return List.of();
             }
-
+            return markdownStructureChunker.chunk(rawText, filename, SourceType.TEXT);
         } catch (Exception e) {
-            log.error("Error processing text file", e);
-            throw new RuntimeException("Failed to process text file", e);
+            log.error("[TextProcessor] 本地文本切片失败: {}", filename, e);
+            throw new RuntimeException("TextProcessor 处理失败: " + filename, e);
         }
+    }
 
-        return units;
+    @Override
+    public List<RagUnit> process(InputStream input, String filename, String mimeType, String fileUrl) {
+        try {
+            log.info("[TextProcessor] 优先使用 MinerU 解析文本文件: {}, URL: {}", filename, fileUrl);
+            String markdownText = minerUClient.extractText(fileUrl, filename);
+            if (markdownText == null || markdownText.isBlank()) {
+                log.warn("[TextProcessor] MinerU 返回空结果，回退到本地文本切片: {}", filename);
+                return process(input, filename, mimeType);
+            }
+            return markdownStructureChunker.chunk(markdownText, filename, SourceType.TEXT);
+        } catch (Exception e) {
+            log.warn("[TextProcessor] MinerU 解析失败，回退到本地文本切片: {}, error={}", filename, e.getMessage());
+            return process(input, filename, mimeType);
+        }
+    }
+
+    private boolean isCsvMimeType(String mimeType) {
+        return "text/csv".equals(mimeType) || "application/csv".equals(mimeType);
     }
 }

@@ -2,22 +2,32 @@ package com.example.demo.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.demo.mapper.RagUnitMapper;
+import com.example.demo.model.DocumentFile;
+import com.example.demo.model.DocumentFileStatus;
+import com.example.demo.model.RagNodeType;
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.SourceType;
+import com.example.demo.model.dto.DocumentFileStatusResponse;
 import com.example.demo.model.dto.FileExistenceResponse;
 import com.example.demo.model.dto.FileProcessTask;
+import com.example.demo.model.dto.PageRequest;
+import com.example.demo.model.dto.PageResponse;
+import com.example.demo.model.dto.RagDocumentInfo;
 import com.example.demo.model.dto.UploadResponse;
-import com.example.demo.service.processor.*;
+import com.example.demo.service.processor.ImageProcessor;
+import com.example.demo.service.processor.MediaProcessor;
+import com.example.demo.service.processor.PowerPointProcessor;
+import com.example.demo.service.processor.TabularProcessor;
+import com.example.demo.service.processor.TextProcessor;
+import com.example.demo.service.processor.VideoProcessor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,41 +39,59 @@ import java.util.UUID;
 @Slf4j
 public class RagUnitService {
 
-    @Autowired
-    private RagUnitMapper ragUnitMapper;
-
-    @Autowired
-    private UploadService uploadService;
-
-    @Autowired
-    private VectorStore vectorStore; // Spring AI VectorStore
-
-    @Autowired
-    private TextProcessor textProcessor;
-
-    @Autowired
-    private ImageProcessor imageProcessor;
-
-    @Autowired
-    private VideoProcessor videoProcessor;
-
-    @Autowired
-    private PowerPointProcessor powerPointProcessor;
-
-    @Autowired
-    private FileProcessProducer fileProcessProducer;
-
+    private final RagUnitMapper ragUnitMapper;
+    private final UploadService uploadService;
+    private final VectorStore leafVectorStore;
+    private final VectorStore summaryVectorStore;
+    private final TextProcessor textProcessor;
+    private final ImageProcessor imageProcessor;
+    private final VideoProcessor videoProcessor;
+    private final PowerPointProcessor powerPointProcessor;
+    private final com.example.demo.service.processor.PdfProcessor pdfProcessor;
+    private final com.example.demo.service.processor.WordProcessor wordProcessor;
+    private final TabularProcessor tabularProcessor;
+    private final FileProcessProducer fileProcessProducer;
+    private final DocumentFileService documentFileService;
+    private final DocumentDeleteService documentDeleteService;
+    private final HierarchicalIndexingService hierarchicalIndexingService;
     private final Tika tika = new Tika();
 
-    /**
-     * 批量保存 RagUnit 到数据库（使用 MyBatis-Plus 批量插入）
-     * @param units RagUnit 列表
-     */
+    public RagUnitService(RagUnitMapper ragUnitMapper,
+                          UploadService uploadService,
+                          @Qualifier("leafVectorStore") VectorStore leafVectorStore,
+                          @Qualifier("summaryVectorStore") VectorStore summaryVectorStore,
+                          TextProcessor textProcessor,
+                          ImageProcessor imageProcessor,
+                          VideoProcessor videoProcessor,
+                          PowerPointProcessor powerPointProcessor,
+                          com.example.demo.service.processor.PdfProcessor pdfProcessor,
+                          com.example.demo.service.processor.WordProcessor wordProcessor,
+                          TabularProcessor tabularProcessor,
+                          FileProcessProducer fileProcessProducer,
+                          DocumentFileService documentFileService,
+                          DocumentDeleteService documentDeleteService,
+                          HierarchicalIndexingService hierarchicalIndexingService) {
+        this.ragUnitMapper = ragUnitMapper;
+        this.uploadService = uploadService;
+        this.leafVectorStore = leafVectorStore;
+        this.summaryVectorStore = summaryVectorStore;
+        this.textProcessor = textProcessor;
+        this.imageProcessor = imageProcessor;
+        this.videoProcessor = videoProcessor;
+        this.powerPointProcessor = powerPointProcessor;
+        this.pdfProcessor = pdfProcessor;
+        this.wordProcessor = wordProcessor;
+        this.tabularProcessor = tabularProcessor;
+        this.fileProcessProducer = fileProcessProducer;
+        this.documentFileService = documentFileService;
+        this.documentDeleteService = documentDeleteService;
+        this.hierarchicalIndexingService = hierarchicalIndexingService;
+    }
+
     public void saveBatch(List<RagUnit> units) {
         if (units == null || units.isEmpty()) {
             return;
         }
-        // MyBatis-Plus 的批量插入，默认每批 1000 条
         for (int i = 0; i < units.size(); i += 1000) {
             int end = Math.min(i + 1000, units.size());
             List<RagUnit> batch = units.subList(i, end);
@@ -73,384 +101,183 @@ public class RagUnitService {
         }
     }
 
-    /**
-     * 检查文件是否已存在（通过SHA-256哈希值）
-     *
-     * @param fileHash 文件SHA-256哈希值（由前端计算）
-     * @return 文件存在性信息
-     */
-    public FileExistenceResponse checkFileExists(String fileHash) {
-        if (fileHash == null || fileHash.trim().isEmpty()) {
-            throw new IllegalArgumentException("文件哈希值不能为空");
-        }
+    public FileExistenceResponse checkFileExists(String userId, String fileHash) {
+        validateFileHash(fileHash);
+        validateUserId(userId);
 
-        // 验证SHA-256格式（64位十六进制字符）
-        if (!fileHash.matches("^[a-fA-F0-9]{64}$")) {
-            throw new IllegalArgumentException("无效的SHA-256哈希值格式");
-        }
-
-        log.info("检查文件是否存在: fileHash={}", fileHash);
-
-        // 查询是否存在相同哈希值的文件
-        QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
-        wrapper.eq("file_hash", fileHash);
-        wrapper.last("LIMIT 1"); // 只需要知道是否存在
-
-        RagUnit existingUnit = ragUnitMapper.selectOne(wrapper);
-
-        if (existingUnit == null) {
-            log.info("文件不存在: fileHash={}", fileHash);
+        DocumentFile documentFile = documentFileService.getByFileHash(userId, fileHash);
+        if (documentFile == null || Boolean.TRUE.equals(documentFile.getDeleted())) {
             return FileExistenceResponse.notExists();
         }
 
-        // 文件已存在，查询该文件的所有切片
-        QueryWrapper<RagUnit> allUnitsWrapper = new QueryWrapper<>();
-        allUnitsWrapper.eq("source_id", existingUnit.getSourceId());
-        List<RagUnit> allUnits = ragUnitMapper.selectList(allUnitsWrapper);
-
-        List<String> unitIds = new ArrayList<>();
-        for (RagUnit unit : allUnits) {
-            unitIds.add(unit.getId());
+        List<RagUnit> units = getUnitsBySourceId(documentFile.getSourceId());
+        List<RagUnit> leafUnits = filterLeafUnits(units);
+        List<String> leafUnitIds = new ArrayList<>();
+        for (RagUnit unit : leafUnits) {
+            leafUnitIds.add(unit.getId());
         }
 
-        log.info("文件已存在: fileHash={}, sourceId={}, chunks={}",
-                fileHash, existingUnit.getSourceId(), allUnits.size());
+        if (documentFile.getStatus() == DocumentFileStatus.SUCCESS) {
+            return FileExistenceResponse.exists(
+                    documentFile.getSourceId(),
+                    documentFile.getFilename(),
+                    safeChunkCount(documentFile, leafUnits),
+                    documentFile.getMinioPath(),
+                    documentFile.getMinioUrl(),
+                    leafUnitIds
+            );
+        }
 
-        return FileExistenceResponse.exists(
-                existingUnit.getSourceId(),
-                existingUnit.getFilename(),
-                allUnits.size(),
-                existingUnit.getMinioPath(),
-                existingUnit.getMinioUrl(),
-                unitIds
-        );
+        if (documentFile.getStatus() != null && documentFile.getStatus().isProcessing()) {
+            return FileExistenceResponse.processing(
+                    documentFile.getSourceId(),
+                    documentFile.getFilename(),
+                    safeChunkCount(documentFile, leafUnits),
+                    documentFile.getMinioPath(),
+                    documentFile.getMinioUrl(),
+                    documentFile.getStatus()
+            );
+        }
+
+        if (documentFile.getStatus() == DocumentFileStatus.FAILED) {
+            return FileExistenceResponse.failed(
+                    documentFile.getSourceId(),
+                    documentFile.getFilename(),
+                    safeChunkCount(documentFile, leafUnits),
+                    documentFile.getMinioPath(),
+                    documentFile.getMinioUrl(),
+                    documentFile.getErrorMessage()
+            );
+        }
+
+        return FileExistenceResponse.notExists();
     }
 
-    /**
-     * 异步文件处理（新版本 - 推荐使用）
-     * 支持SHA-256去重检查
-     * 1. 检查文件是否已存在（通过fileHash）
-     * 2. 如果不存在，上传文件到MinIO
-     * 3. 发送消息到RabbitMQ
-     * 4. 立即返回响应，后台异步处理
-     */
-    public UploadResponse processAndStoreAsync(MultipartFile file, String fileHash) throws Exception {
+    public DocumentFileStatusResponse getDocumentStatus(String userId, String fileHash) {
+        validateFileHash(fileHash);
+        validateUserId(userId);
+        return documentFileService.getDocumentStatus(userId, fileHash);
+    }
+
+    public UploadResponse processAndStoreAsync(MultipartFile file, String fileHash, String userId) throws Exception {
         String filename = file.getOriginalFilename();
         long fileSize = file.getSize();
 
-        // 验证fileHash
-        if (fileHash == null || fileHash.trim().isEmpty()) {
-            throw new IllegalArgumentException("文件哈希值不能为空");
-        }
-        if (!fileHash.matches("^[a-fA-F0-9]{64}$")) {
-            throw new IllegalArgumentException("无效的SHA-256哈希值格式");
-        }
+        validateFileHash(fileHash);
+        validateUserId(userId);
 
-        // 检查文件是否已存在
-        FileExistenceResponse existenceCheck = checkFileExists(fileHash);
-        if (existenceCheck.getExists()) {
-            log.info("文件已存在，跳过处理: fileHash={}, sourceId={}",
-                    fileHash, existenceCheck.getSourceId());
-
-            return UploadResponse.builder()
-                    .success(true)
-                    .message("文件已存在，无需重复上传")
-                    .sourceId(existenceCheck.getSourceId())
-                    .filename(existenceCheck.getFilename())
-                    .sourceType(determineSourceType(null))
-                    .chunksCreated(existenceCheck.getChunkCount())
-                    .minioPath(existenceCheck.getMinioPath())
-                    .minioUrl(existenceCheck.getMinioUrl())
-                    .unitIds(existenceCheck.getUnitIds())
-                    .build();
+        DocumentFile existing = documentFileService.getByFileHash(userId, fileHash);
+        if (existing != null) {
+            if (Boolean.TRUE.equals(existing.getDeleted())) {
+                throw new IllegalStateException("该文档正在删除中，请稍后重试");
+            }
+            if (existing.getStatus() == DocumentFileStatus.SUCCESS) {
+                return buildUploadResponse(existing, "文件已存在，无需重复上传", true);
+            }
+            if (existing.getStatus() != null && existing.getStatus().isProcessing()) {
+                return buildUploadResponse(existing, "文件已在后台处理中，请稍后查看状态", true);
+            }
+            if (existing.getStatus() == DocumentFileStatus.FAILED) {
+                throw new IllegalStateException("该文档已有失败记录，请先删除后重新上传");
+            }
         }
 
-        // 检测MIME类型（使用流式处理，避免加载整个文件到内存）
         String mimeType;
         try (InputStream inputStream = file.getInputStream()) {
             mimeType = tika.detect(inputStream, filename);
         }
-        log.info("检测到文件类型: {} -> {}", filename, mimeType);
 
-        // 验证是否支持该文件类型
-        MediaProcessor processor = findProcessor(mimeType);
+        MediaProcessor processor = findProcessorByMimeType(mimeType);
         if (processor == null) {
             throw new IllegalArgumentException("不支持的文件类型: " + mimeType);
         }
 
-        // 生成源文件ID
-        String sourceId = UUID.randomUUID().toString();
-
-        // 1. 上传原始文件到MinIO
-        String minioPath = sourceId + "/" + filename;
-        uploadService.uploadFile(file, minioPath);
-        String minioUrl = uploadService.getFileUrl(minioPath);
-        log.info("文件已上传到MinIO: {}", minioPath);
-
-        // 2. 构建处理任务并发送到RabbitMQ
-        FileProcessTask task = FileProcessTask.builder()
-                .sourceId(sourceId)
-                .filename(filename)
-                .fileHash(fileHash)
-                .mimeType(mimeType)
-                .minioPath(minioPath)
-                .minioUrl(minioUrl)
-                .fileSize(fileSize)
-                .createTimestamp(System.currentTimeMillis())
-                .build();
-
-        fileProcessProducer.sendFileProcessTask(task);
-
-        // 3. 立即返回响应（不等待处理完成）
         SourceType sourceType = determineSourceType(mimeType);
-        return UploadResponse.builder()
-                .success(true)
-                .message("文件上传成功，正在后台处理中...")
-                .sourceId(sourceId)
-                .filename(filename)
-                .sourceType(sourceType)
-                .minioPath(minioPath)
-                .minioUrl(minioUrl)
-                .build();
+        String sourceId = UUID.randomUUID().toString();
+        String minioPath = sourceId + "/" + filename;
+
+        documentFileService.createUploadingRecord(userId, sourceId, fileHash, filename, fileSize, sourceType);
+
+        try {
+            uploadService.uploadFile(file, minioPath);
+            String minioUrl = uploadService.getFileUrl(minioPath);
+            documentFileService.markUploadSuccess(userId, fileHash, sourceType, minioPath, minioUrl);
+
+            FileProcessTask task = FileProcessTask.builder()
+                    .sourceId(sourceId)
+                    .filename(filename)
+                    .fileHash(fileHash)
+                    .userId(userId)
+                    .mimeType(mimeType)
+                    .minioPath(minioPath)
+                    .minioUrl(minioUrl)
+                    .fileSize(fileSize)
+                    .createTimestamp(System.currentTimeMillis())
+                    .build();
+
+            fileProcessProducer.sendFileProcessTask(task);
+
+            return buildUploadResponse(
+                    documentFileService.getActiveByFileHash(userId, fileHash),
+                    "文件上传成功，正在后台处理中...",
+                    true
+            );
+        } catch (Exception e) {
+            documentFileService.markFailed(userId, fileHash, normalizeErrorMessage(e));
+            throw e;
+        }
     }
 
-    /**
-     * 异步文件处理（兼容旧版本，不带fileHash）
-     * @deprecated 建议使用带fileHash参数的版本
-     */
-    @Deprecated
-    public UploadResponse processAndStoreAsync(MultipartFile file) throws Exception {
-        String filename = file.getOriginalFilename();
-        byte[] fileBytes = file.getBytes();
-        long fileSize = file.getSize();
-
-        // 检测MIME类型
-        String mimeType = tika.detect(fileBytes, filename);
-        log.info("检测到文件类型: {} -> {}", filename, mimeType);
-
-        // 验证是否支持该文件类型
-        MediaProcessor processor = findProcessor(mimeType);
-        if (processor == null) {
-            throw new IllegalArgumentException("不支持的文件类型: " + mimeType);
-        }
-
-        // 生成源文件ID
-        String sourceId = UUID.randomUUID().toString();
-
-        // 1. 上传原始文件到MinIO
-        String minioPath = sourceId + "/" + filename;
-        uploadService.uploadFile(file, minioPath);
-        String minioUrl = uploadService.getFileUrl(minioPath);
-        log.info("文件已上传到MinIO: {}", minioPath);
-
-        // 2. 构建处理任务并发送到RabbitMQ
-        FileProcessTask task = FileProcessTask.builder()
-            .sourceId(sourceId)
-            .filename(filename)
-            .fileHash(null)
-            .mimeType(mimeType)
-            .minioPath(minioPath)
-            .minioUrl(minioUrl)
-            .fileSize(fileSize)
-            .createTimestamp(System.currentTimeMillis())
-            .build();
-
-        fileProcessProducer.sendFileProcessTask(task);
-
-        // 3. 立即返回响应（不等待处理完成）
-        SourceType sourceType = determineSourceType(mimeType);
-        return UploadResponse.builder()
-                .success(true)
-                .message("文件上传成功，正在后台处理中...")
-                .sourceId(sourceId)
-                .filename(filename)
-                .sourceType(sourceType)
-                .minioPath(minioPath)
-                .minioUrl(minioUrl)
-                .build();
-    }
-
-    /**
-     * 同步文件处理（旧版本 - 保留用于兼容或小文件场景）
-     * 警告：大文件可能导致HTTP超时
-     */
-    @Deprecated
-    public UploadResponse processAndStoreSync(MultipartFile file) throws Exception {
-        String filename = file.getOriginalFilename();
-        byte[] fileBytes = file.getBytes();
-
-        // Detect MIME type using Tika
-        String mimeType = tika.detect(fileBytes, filename);
-        log.info("Detected MIME type for {}: {}", filename, mimeType);
-
-        // Find appropriate processor
-        MediaProcessor processor = findProcessor(mimeType);
-        if (processor == null) {
-            throw new IllegalArgumentException("Unsupported file type: " + mimeType);
-        }
-
-        // Generate source ID
-        String sourceId = UUID.randomUUID().toString();
-
-        // Upload original file to MinIO
-        String minioPath = sourceId + "/" + filename;
-        uploadService.uploadFile(file, minioPath);
-        String minioUrl = uploadService.getFileUrl(minioPath);
-
-        // Process file to extract RagUnits (pass URL for image processing)
-        List<RagUnit> units = processor.process(new ByteArrayInputStream(fileBytes), filename, mimeType, minioUrl);
-
-        // Determine source type
-        SourceType sourceType = determineSourceType(mimeType);
-
-        // Save each unit
-        List<String> unitIds = new ArrayList<>();
-        List<Document> documents = new ArrayList<>();
-
-        for (RagUnit unit : units) {
-            unit.setSourceId(sourceId);
-            unit.setFileHash(null);  // 旧方法不带fileHash
-            unit.setFilename(filename);  // 设置filename字段
-            unit.setMinioPath(minioPath);
-            unit.setMinioUrl(minioUrl);
-
-            // Save to MySQL
-            ragUnitMapper.insert(unit);
-            unitIds.add(unit.getId());
-
-            // Prepare for VectorStore
-            if (unit.getContent() != null && !unit.getContent().isEmpty()) {
-                Map<String, Object> metadata = new HashMap<>();
-                metadata.put("source_id", unit.getSourceId());
-                metadata.put("source_type", unit.getSourceType().name());
-                metadata.put("unit_id", unit.getId());
-                if (unit.getStartTime() != null) metadata.put("start_time", unit.getStartTime());
-                if (unit.getEndTime() != null) metadata.put("end_time", unit.getEndTime());
-                metadata.put("filename", filename);
-
-                Document doc = new Document(unit.getId(), unit.getContent(), metadata);
-                documents.add(doc);
-            }
-        }
-
-        // Batch add to VectorStore (Redis) with size limit - single thread to avoid rate limiting
-        if (!documents.isEmpty()) {
-            try {
-                int batchSize = 10; // DashScope API limit
-                int totalDocs = documents.size();
-
-                if (totalDocs <= batchSize) {
-                    // Direct upload if within limit
-                    vectorStore.add(documents);
-                    log.info("Added {} documents to VectorStore", documents.size());
-                } else {
-                    // Split into batches and upload sequentially
-                    int numBatches = (totalDocs + batchSize - 1) / batchSize;
-
-                    for (int i = 0; i < totalDocs; i += batchSize) {
-                        int end = Math.min(i + batchSize, totalDocs);
-                        List<Document> batch = documents.subList(i, end);
-                        int batchNum = (i / batchSize) + 1;
-
-                        vectorStore.add(batch);
-                        log.info("Batch {}/{}: Successfully added {} documents to VectorStore",
-                                batchNum, numBatches, batch.size());
-
-                        // Add delay between batches to avoid rate limiting
-                        if (i + batchSize < totalDocs) {
-                            Thread.sleep(1000); // Wait 1 second between batches
-                        }
-                    }
-
-                    log.info("Successfully added all {} documents to VectorStore in {} batches",
-                            totalDocs, numBatches);
-                }
-            } catch (Exception e) {
-                log.error("Failed to store documents in VectorStore", e);
-                throw new RuntimeException("Failed to upload to vector store: " + e.getMessage(), e);
-            }
-        }
-
-        log.info("Processed file {} into {} chunks", filename, units.size());
-
-        return UploadResponse.success(
-                sourceId,
-                filename,
-                sourceType,
-                units.size(),
-                minioPath,
-                minioUrl,
-                unitIds
-        );
-    }
-
-    /**
-     * 根据MIME类型查找对应的处理器
-     * 改为public，供FileProcessConsumer使用
-     */
     public MediaProcessor findProcessorByMimeType(String mimeType) {
-        if (powerPointProcessor.supports(mimeType)) return powerPointProcessor;
-        if (textProcessor.supports(mimeType)) return textProcessor;
-        if (imageProcessor.supports(mimeType)) return imageProcessor;
-        if (videoProcessor.supports(mimeType)) return videoProcessor;
+        if (mimeType == null || mimeType.isBlank()) {
+            return null;
+        }
+        if (powerPointProcessor.supports(mimeType)) {
+            return powerPointProcessor;
+        }
+        if (pdfProcessor.supports(mimeType)) {
+            return pdfProcessor;
+        }
+        if (wordProcessor.supports(mimeType)) {
+            return wordProcessor;
+        }
+        if (tabularProcessor.supports(mimeType)) {
+            return tabularProcessor;
+        }
+        if (textProcessor.supports(mimeType)) {
+            return textProcessor;
+        }
+        if (imageProcessor.supports(mimeType)) {
+            return imageProcessor;
+        }
+        if (videoProcessor.supports(mimeType)) {
+            return videoProcessor;
+        }
         return null;
     }
 
+    public String deleteDocumentAsync(String userId, String fileHash) {
+        validateUserId(userId);
+        return documentDeleteService.asyncDeleteDocument(userId, fileHash);
+    }
+
     @Deprecated
-    private MediaProcessor findProcessor(String mimeType) {
-        return findProcessorByMimeType(mimeType);
+    public String deleteDocumentAsyncByFilename(String userId, String filename) {
+        validateUserId(userId);
+        return documentDeleteService.asyncDeleteDocumentByFilename(userId, filename);
     }
 
-    private SourceType determineSourceType(String mimeType) {
-        if (mimeType.startsWith("image/")) return SourceType.IMAGE;
-        if (mimeType.startsWith("video/")) return SourceType.VIDEO;
-        return SourceType.TEXT;
-    }
-
-    @Autowired
-    private DocumentDeleteService documentDeleteService;
-
-    /**
-     * 异步删除文档（新版本 - 使用SHA-256哈希值）
-     * 推荐使用，通过fileHash精确定位，性能最优
-     *
-     * @param fileHash 文件SHA-256哈希值
-     * @return 任务ID（用于查询删除状态）
-     */
-    public String deleteDocumentAsync(String fileHash) {
-        return documentDeleteService.asyncDeleteDocument(fileHash);
-    }
-
-    /**
-     * 异步删除文档（旧版本 - 使用filename）
-     * @deprecated 建议使用 deleteDocumentAsync(String fileHash) 替代
-     */
-    @Deprecated
-    public String deleteDocumentAsyncByFilename(String filename) {
-        return documentDeleteService.asyncDeleteDocumentByFilename(filename);
-    }
-
-    /**
-     * 同步删除文档（带补偿机制）- 已废弃
-     */
     @Deprecated
     public void deleteDocument(String filename) {
         documentDeleteService.safeDeleteDocumentSync(filename);
     }
 
-    /**
-     * 删除文档（旧版本 - 无补偿机制）
-     * 已废弃，可能导致数据不一致
-     */
     @Deprecated
     public void deleteDocumentUnsafe(String filename) {
-        // Find all units related to this filename
         QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
         wrapper.like("minio_path", "/" + filename);
 
         List<RagUnit> units = ragUnitMapper.selectList(wrapper);
-
-        // Filter strictly for ending with /filename to handle exact matches
         List<RagUnit> targetUnits = new ArrayList<>();
         String targetPath = null;
 
@@ -465,86 +292,212 @@ public class RagUnitService {
             throw new RuntimeException("Document not found: " + filename);
         }
 
-        // 1. Delete from MinIO
         if (targetPath != null) {
-            try {
-                uploadService.deleteFile(targetPath);
-            } catch (Exception e) {
-                log.warn("Failed to delete file from MinIO: {}", targetPath, e);
-            }
+            uploadService.deleteFile(targetPath);
         }
 
-        // 2. Delete from Redis and MySQL
         List<String> idsToDelete = new ArrayList<>();
         for (RagUnit unit : targetUnits) {
             idsToDelete.add(unit.getId());
-            // Delete from MySQL
             ragUnitMapper.deleteById(unit.getId());
         }
 
-        // Delete from VectorStore
         if (!idsToDelete.isEmpty()) {
-            try {
-                vectorStore.delete(idsToDelete);
-            } catch (Exception e) {
-                log.warn("Failed to delete documents from VectorStore", e);
-            }
+            leafVectorStore.delete(idsToDelete);
+            summaryVectorStore.delete(idsToDelete);
         }
-
-        log.info("Deleted document {} with {} chunks", filename, targetUnits.size());
     }
 
-    public List<String> getAllDocuments() {
-        QueryWrapper<RagUnit> queryWrapper = new QueryWrapper<>();
-        queryWrapper.select("DISTINCT minio_path");
-        List<RagUnit> units = ragUnitMapper.selectList(queryWrapper);
-
+    public List<String> getAllDocuments(String userId) {
+        PageRequest request = new PageRequest();
+        request.setPageSize(1000);
+        request.setUserId(userId);
         List<String> filenames = new ArrayList<>();
-        for (RagUnit unit : units) {
-            String path = unit.getMinioPath();
-            if (path != null && path.contains("/")) {
-                String name = path.substring(path.indexOf("/") + 1);
-                if (!filenames.contains(name)) {
-                    filenames.add(name);
-                }
-            }
+        for (RagDocumentInfo info : documentFileService.getDocumentsPage(request).getRecords()) {
+            filenames.add(info.getFilename());
         }
         return filenames;
     }
 
-    public com.example.demo.model.dto.PageResponse<com.example.demo.model.dto.RagDocumentInfo> getDocumentsPage(
-            com.example.demo.model.dto.PageRequest request) {
+    public PageResponse<RagDocumentInfo> getDocumentsPage(PageRequest request) {
+        return documentFileService.getDocumentsPage(request);
+    }
 
-        // 查询总数
-        Long total = ragUnitMapper.countDocuments(
-                request.getSourceType(),
-                request.getKeyword()
-        );
+    public List<RagUnit> getUnitsBySourceId(String sourceId) {
+        QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
+        wrapper.eq("source_id", sourceId)
+                .orderByAsc("tree_level")
+                .orderByAsc("ordinal")
+                .orderByAsc("chunk_index");
+        return ragUnitMapper.selectList(wrapper);
+    }
 
-        // 查询分页数据
-        List<com.example.demo.model.dto.RagDocumentInfo> documents = ragUnitMapper.selectDocumentsPage(
-                request.getSourceType(),
-                request.getKeyword(),
-                request.getSortBy(),
-                request.getSortOrder(),
-                request.getOffset(),
-                request.getPageSize()
-        );
+    public List<RagUnit> getLeafUnitsBySourceId(String sourceId) {
+        return filterLeafUnits(getUnitsBySourceId(sourceId));
+    }
 
-        // 提取文件名
-        for (com.example.demo.model.dto.RagDocumentInfo doc : documents) {
-            String path = doc.getMinioPath();
-            if (path != null && path.contains("/")) {
-                String filename = path.substring(path.indexOf("/") + 1);
-                doc.setFilename(filename);
+    public void removeIndexedData(String sourceId) {
+        List<RagUnit> existingUnits = getUnitsBySourceId(sourceId);
+        if (existingUnits.isEmpty()) {
+            return;
+        }
+
+        List<String> ids = new ArrayList<>();
+        for (RagUnit unit : existingUnits) {
+            ids.add(unit.getId());
+        }
+
+        leafVectorStore.delete(ids);
+        summaryVectorStore.delete(ids);
+
+        QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
+        wrapper.eq("source_id", sourceId);
+        ragUnitMapper.delete(wrapper);
+    }
+
+    public void addUnitsToVectorStores(List<RagUnit> units, String filename) {
+        List<Document> leafDocuments = new ArrayList<>();
+        List<Document> summaryDocuments = new ArrayList<>();
+
+        for (RagUnit unit : units) {
+            if (unit.getContent() == null || unit.getContent().isBlank()) {
+                continue;
+            }
+
+            Map<String, Object> metadata = buildVectorMetadata(unit, filename);
+            Document document = new Document(unit.getId(), unit.getContent(), metadata);
+
+            // 叶子节点和摘要节点分流写入不同索引，后续检索才能按层级控制路径。
+            if (unit.getNodeType() == RagNodeType.LEAF || unit.getNodeType() == null) {
+                leafDocuments.add(document);
+            } else {
+                summaryDocuments.add(document);
             }
         }
 
-        return com.example.demo.model.dto.PageResponse.of(
-                documents,
-                total,
-                request.getPage(),
-                request.getPageSize()
-        );
+        if (!leafDocuments.isEmpty()) {
+            batchAdd(leafVectorStore, leafDocuments);
+        }
+        if (!summaryDocuments.isEmpty()) {
+            batchAdd(summaryVectorStore, summaryDocuments);
+        }
+    }
+
+    private void batchAdd(VectorStore vectorStore, List<Document> documents) {
+        int batchSize = 20; // 限制每批最多 20 条，安全避开 DashScope text-embedding-v3 API 限制最多 25 条的规定
+        for (int i = 0; i < documents.size(); i += batchSize) {
+            List<Document> batch = documents.subList(i, Math.min(i + batchSize, documents.size()));
+            vectorStore.add(batch);
+        }
+    }
+
+    public Map<String, Object> buildVectorMetadata(RagUnit unit, String filename) {
+        Map<String, Object> metadata = new HashMap<>();
+        // 把层级关系一起写进 metadata，便于命中后回溯 source、父节点和树层级。
+        metadata.put("source_id", unit.getSourceId());
+        metadata.put("source_type", unit.getSourceType().name());
+        metadata.put("unit_id", unit.getId());
+        if (unit.getUserId() != null) {
+            metadata.put("user_id", unit.getUserId());
+        }
+        metadata.put("filename", filename);
+        metadata.put("node_type", unit.getNodeType() != null ? unit.getNodeType().name() : RagNodeType.LEAF.name());
+        metadata.put("tree_level", unit.getTreeLevel() != null ? unit.getTreeLevel() : 0);
+        if (unit.getParentId() != null) {
+            metadata.put("parent_id", unit.getParentId());
+        }
+        if (unit.getTitle() != null) {
+            metadata.put("title", unit.getTitle());
+        }
+        if (unit.getChildCount() != null) {
+            metadata.put("child_count", unit.getChildCount());
+        }
+        if (unit.getChunkIndex() != null) {
+            metadata.put("chunk_index", unit.getChunkIndex());
+        }
+        if (unit.getStartTime() != null) {
+            metadata.put("start_time", unit.getStartTime());
+        }
+        if (unit.getEndTime() != null) {
+            metadata.put("end_time", unit.getEndTime());
+        }
+        return metadata;
+    }
+
+    private UploadResponse buildUploadResponse(DocumentFile documentFile, String message, boolean success) {
+        List<RagUnit> leafUnits = documentFile.getStatus() == DocumentFileStatus.SUCCESS
+                ? getLeafUnitsBySourceId(documentFile.getSourceId())
+                : List.of();
+        List<String> unitIds = new ArrayList<>();
+        for (RagUnit unit : leafUnits) {
+            unitIds.add(unit.getId());
+        }
+
+        return UploadResponse.builder()
+                .success(success)
+                .message(message)
+                .sourceId(documentFile.getSourceId())
+                .fileHash(documentFile.getFileHash())
+                .filename(documentFile.getFilename())
+                .sourceType(documentFile.getSourceType())
+                .status(documentFile.getStatus())
+                .errorMessage(documentFile.getErrorMessage())
+                .chunksCreated(safeChunkCount(documentFile, leafUnits))
+                .minioPath(documentFile.getMinioPath())
+                .minioUrl(documentFile.getMinioUrl())
+                .unitIds(unitIds)
+                .build();
+    }
+
+    private int safeChunkCount(DocumentFile documentFile, List<RagUnit> leafUnits) {
+        if (documentFile.getChunkCount() != null && documentFile.getChunkCount() > 0) {
+            return documentFile.getChunkCount();
+        }
+        return leafUnits.size();
+    }
+
+    private List<RagUnit> filterLeafUnits(List<RagUnit> units) {
+        List<RagUnit> leafUnits = new ArrayList<>();
+        for (RagUnit unit : units) {
+            if (unit.getNodeType() == null || unit.getNodeType() == RagNodeType.LEAF) {
+                leafUnits.add(unit);
+            }
+        }
+        return leafUnits;
+    }
+
+    private void validateFileHash(String fileHash) {
+        if (fileHash == null || fileHash.trim().isEmpty()) {
+            throw new IllegalArgumentException("文件哈希值不能为空");
+        }
+        if (!fileHash.matches("^[a-fA-F0-9]{64}$")) {
+            throw new IllegalArgumentException("无效的 SHA-256 哈希格式");
+        }
+    }
+
+    private void validateUserId(String userId) {
+        if (userId == null || userId.trim().isEmpty()) {
+            throw new IllegalArgumentException("用户 ID 不能为空");
+        }
+    }
+
+    private String normalizeErrorMessage(Exception e) {
+        if (e == null || e.getMessage() == null || e.getMessage().isBlank()) {
+            return "文件处理失败";
+        }
+        return e.getMessage();
+    }
+
+    private SourceType determineSourceType(String mimeType) {
+        if (mimeType == null || mimeType.isBlank()) {
+            return SourceType.TEXT;
+        }
+        if (mimeType.startsWith("image/")) {
+            return SourceType.IMAGE;
+        }
+        if (mimeType.startsWith("video/")) {
+            return SourceType.VIDEO;
+        }
+        return SourceType.TEXT;
     }
 }

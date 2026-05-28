@@ -1,11 +1,13 @@
 package com.example.demo.Controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.example.demo.model.dto.ApiResponse;
 import com.example.demo.model.dto.DeleteTaskStatus;
 import com.example.demo.model.dto.DeleteTaskResponse;
 import com.example.demo.model.dto.DocumentFileStatusResponse;
 import com.example.demo.model.dto.PageResponse;
 import com.example.demo.model.dto.RagDocumentInfo;
+import com.example.demo.service.AuthContextService;
 import com.example.demo.service.RagDocumentApplicationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class RagDocumentController {
 
     private final RagDocumentApplicationService ragDocumentApplicationService;
+    private final AuthContextService authContextService;
 
     /**
      * 分页查询文档列表。
@@ -39,6 +42,7 @@ public class RagDocumentController {
      * @param sortBy 排序字段
      * @param sortOrder 排序方向
      */
+    @SaCheckPermission("document:list")
     @GetMapping
     public ApiResponse<PageResponse<RagDocumentInfo>> getDocuments(@RequestParam(defaultValue = "1") Integer page,
                                                                    @RequestParam(defaultValue = "10") Integer pageSize,
@@ -47,7 +51,7 @@ public class RagDocumentController {
                                                                    @RequestParam(required = false) String keyword,
                                                                    @RequestParam(defaultValue = "createdAt") String sortBy,
                                                                    @RequestParam(defaultValue = "DESC") String sortOrder) {
-        return ragDocumentApplicationService.getDocuments(page, pageSize, userId, sourceType, keyword, sortBy, sortOrder);
+        return ragDocumentApplicationService.getDocuments(page, pageSize, authContextService.resolveUserId(userId), sourceType, keyword, sortBy, sortOrder);
     }
 
     /**
@@ -56,10 +60,11 @@ public class RagDocumentController {
      * @param fileHash 文件 SHA-256 哈希值
      * @param userId 用户 ID
      */
+    @SaCheckPermission("document:status")
     @GetMapping("/status/{fileHash}")
     public ApiResponse<DocumentFileStatusResponse> getDocumentStatus(@PathVariable String fileHash,
                                                                       @RequestParam String userId) {
-        return ragDocumentApplicationService.getDocumentStatus(fileHash, userId);
+        return ragDocumentApplicationService.getDocumentStatus(fileHash, authContextService.resolveUserId(userId));
     }
 
     /**
@@ -68,10 +73,11 @@ public class RagDocumentController {
      * @param fileHash 文件 SHA-256 哈希值
      * @param userId 用户 ID
      */
+    @SaCheckPermission("document:delete")
     @DeleteMapping("/{fileHash}")
     public ApiResponse<DeleteTaskResponse> deleteDocument(@PathVariable String fileHash,
                                                           @RequestParam String userId) {
-        return ragDocumentApplicationService.deleteDocument(fileHash, userId);
+        return ragDocumentApplicationService.deleteDocument(fileHash, authContextService.resolveUserId(userId));
     }
 
     /**
@@ -81,10 +87,11 @@ public class RagDocumentController {
      *
      * @param filename 文件名
      */
+    @SaCheckPermission("document:delete")
     @Deprecated
     @DeleteMapping("/by-filename/{filename}")
     public ApiResponse<DeleteTaskResponse> deleteDocumentByFilename(@PathVariable String filename) {
-        return ragDocumentApplicationService.deleteDocumentByFilename(filename);
+        return ragDocumentApplicationService.deleteDocumentByFilename(authContextService.getCurrentUserId(), filename);
     }
 
     /**
@@ -92,6 +99,7 @@ public class RagDocumentController {
      *
      * @param taskId 任务 ID
      */
+    @SaCheckPermission("document:delete-status")
     @GetMapping("/delete-status/{taskId}")
     public ApiResponse<DeleteTaskStatus> getDeleteStatus(@PathVariable String taskId) {
         return ragDocumentApplicationService.getDeleteStatus(taskId);

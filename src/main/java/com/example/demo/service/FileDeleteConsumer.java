@@ -15,10 +15,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.concurrent.TimeUnit;
 
-/**
- * 文件删除消息消费者
- * 带重试机制，每个步骤独立重试
- */
 @Service
 @Slf4j
 public class FileDeleteConsumer {
@@ -38,69 +34,38 @@ public class FileDeleteConsumer {
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
+    @Autowired
+    private DocumentFileService documentFileService;
+
     private static final String DELETE_TASK_PREFIX = "delete:task:";
     private static final int TASK_EXPIRE_HOURS = 24;
 
-    /**
-     * 监听删除队列
-     */
     @RabbitListener(queues = RabbitMQConfig.FILE_DELETE_QUEUE)
     public void processDelete(FileDeleteTask task,
-                             Channel channel,
-                             @Header(AmqpHeaders.DELIVERY_TAG) long deliveryTag) {
-
-        log.info("开始处理删除任务: taskId={}, filename={}, retry={}/{}",
-                task.getTaskId(), task.getFilename(), task.getRetryCount(), task.getMaxRetries());
-
-        boolean hasChanges = false;
-
+                              Channel channel,
+                              @Header(AmqpHeaders.DELIVERY_TAG) long deliveryTag) {
         try {
-            // 1. 尝试删除 Redis VectorStore
-            if (task.getRedisStatus() != FileDeleteTask.StepStatus.SUCCESS) {
-                if (deleteFromRedis(task)) {
-                    task.setRedisStatus(FileDeleteTask.StepStatus.SUCCESS);
-                    hasChanges = true;
-                    log.info("✓ Redis删除成功: {}", task.getFilename());
-                } else {
-                    log.warn("✗ Redis删除失败: {} (将重试)", task.getFilename());
-                }
+            if (task.getRedisStatus() != FileDeleteTask.StepStatus.SUCCESS && deleteFromRedis(task)) {
+                task.setRedisStatus(FileDeleteTask.StepStatus.SUCCESS);
             }
 
-            // 2. 尝试删除 MySQL
-            if (task.getMysqlStatus() != FileDeleteTask.StepStatus.SUCCESS) {
-                if (deleteFromMySQL(task)) {
-                    task.setMysqlStatus(FileDeleteTask.StepStatus.SUCCESS);
-                    hasChanges = true;
-                    log.info("✓ MySQL删除成功: {}", task.getFilename());
-                } else {
-                    log.warn("✗ MySQL删除失败: {} (将重试)", task.getFilename());
-                }
+            if (task.getMysqlStatus() != FileDeleteTask.StepStatus.SUCCESS && deleteFromMySQL(task)) {
+                task.setMysqlStatus(FileDeleteTask.StepStatus.SUCCESS);
             }
 
-            // 3. 尝试删除 MinIO
-            if (task.getMinioStatus() != FileDeleteTask.StepStatus.SUCCESS) {
-                if (deleteFromMinIO(task)) {
-                    task.setMinioStatus(FileDeleteTask.StepStatus.SUCCESS);
-                    hasChanges = true;
-                    log.info("✓ MinIO删除成功: {}", task.getFilename());
-                } else {
-                    log.warn("✗ MinIO删除失败: {} (将重试)", task.getFilename());
-                }
+            if (task.getMinioStatus() != FileDeleteTask.StepStatus.SUCCESS && deleteFromMinIO(task)) {
+                task.setMinioStatus(FileDeleteTask.StepStatus.SUCCESS);
             }
 
-            // 4. 检查是否全部成功
             if (task.isAllSuccess()) {
-                log.info("删除任务完成: {} (Redis✓ MySQL✓ MinIO✓)", task.getFilename());
+                documentFileService.deleteByFileHash(task.getUserId(), task.getFileHash());
                 saveTaskStatus(task);
-                channel.basicAck(deliveryTag, false);
+                safeAck(channel, deliveryTag);
                 return;
             }
 
-            // 5. 检查是否需要重试
             if (task.needsRetry()) {
                 task.incrementRetry();
-
-                // 标记未成功的步骤为待重试
                 if (task.getRedisStatus() != FileDeleteTask.StepStatus.SUCCESS) {
                     task.setRedisStatus(FileDeleteTask.StepStatus.PENDING);
                 }
@@ -111,105 +76,82 @@ public class FileDeleteConsumer {
                     task.setMinioStatus(FileDeleteTask.StepStatus.PENDING);
                 }
 
-                log.warn("删除任务未完成，准备第 {} 次重试: {}", task.getRetryCount(), task.getFilename());
-
-                // 延迟重试（指数退避）
-                Thread.sleep(Math.min(1000L * task.getRetryCount(), 5000L));
-
-                // 重新发送到队列
-                fileDeleteProducer.sendDeleteTask(task);
-                channel.basicAck(deliveryTag, false);
-            } else {
-                // 6. 达到最大重试次数，标记失败步骤
-                if (task.getRedisStatus() != FileDeleteTask.StepStatus.SUCCESS) {
-                    task.setRedisStatus(FileDeleteTask.StepStatus.FAILED);
-                }
-                if (task.getMysqlStatus() != FileDeleteTask.StepStatus.SUCCESS) {
-                    task.setMysqlStatus(FileDeleteTask.StepStatus.FAILED);
-                }
-                if (task.getMinioStatus() != FileDeleteTask.StepStatus.SUCCESS) {
-                    task.setMinioStatus(FileDeleteTask.StepStatus.FAILED);
-                }
-
-                log.error("删除任务失败（已重试{}次）: {} - Redis:{} MySQL:{} MinIO:{}",
-                        task.getRetryCount(), task.getFilename(),
-                        task.getRedisStatus(), task.getMysqlStatus(), task.getMinioStatus());
-
                 saveTaskStatus(task);
-                channel.basicAck(deliveryTag, false);
+                Thread.sleep(Math.min(1000L * task.getRetryCount(), 5000L));
+                fileDeleteProducer.sendDeleteTask(task);
+                safeAck(channel, deliveryTag);
+                return;
             }
 
+            if (task.getRedisStatus() != FileDeleteTask.StepStatus.SUCCESS) {
+                task.setRedisStatus(FileDeleteTask.StepStatus.FAILED);
+            }
+            if (task.getMysqlStatus() != FileDeleteTask.StepStatus.SUCCESS) {
+                task.setMysqlStatus(FileDeleteTask.StepStatus.FAILED);
+            }
+            if (task.getMinioStatus() != FileDeleteTask.StepStatus.SUCCESS) {
+                task.setMinioStatus(FileDeleteTask.StepStatus.FAILED);
+            }
+            saveTaskStatus(task);
+            safeAck(channel, deliveryTag);
         } catch (Exception e) {
             log.error("删除任务处理异常: {}", task.getFilename(), e);
-            try {
-                // 发生异常，拒绝消息但不重新入队（避免死循环）
-                channel.basicNack(deliveryTag, false, false);
-            } catch (Exception ackEx) {
-                log.error("消息确认失败", ackEx);
-            }
+            saveTaskStatus(task);
+            safeAck(channel, deliveryTag);
         }
     }
 
-    /**
-     * 删除Redis向量数据
-     */
     private boolean deleteFromRedis(FileDeleteTask task) {
         try {
             if (task.getVectorIds() != null && !task.getVectorIds().isEmpty()) {
                 vectorStore.delete(task.getVectorIds());
-                return true;
             }
-            return true; // 没有数据需要删除也算成功
+            return true;
         } catch (Exception e) {
-            log.error("Redis删除失败: {}", task.getFilename(), e);
+            log.error("Redis 删除失败: {}", task.getFilename(), e);
             return false;
         }
     }
 
-    /**
-     * 删除MySQL数据（批量删除）
-     */
     private boolean deleteFromMySQL(FileDeleteTask task) {
         try {
             if (task.getUnitIds() != null && !task.getUnitIds().isEmpty()) {
-                // 使用 MyBatis-Plus 批量删除，提升性能
                 ragUnitMapper.deleteByIds(task.getUnitIds());
-                log.info("已批量删除 {} 条MySQL记录", task.getUnitIds().size());
-                return true;
             }
-            return true; // 没有数据需要删除也算成功
+            return true;
         } catch (Exception e) {
-            log.error("MySQL删除失败: {}", task.getFilename(), e);
+            log.error("MySQL 删除失败: {}", task.getFilename(), e);
             return false;
         }
     }
 
-    /**
-     * 删除MinIO文件
-     */
     private boolean deleteFromMinIO(FileDeleteTask task) {
         try {
             if (task.getMinioPath() != null && !task.getMinioPath().isEmpty()) {
                 uploadService.deleteFile(task.getMinioPath());
-                return true;
             }
-            return true; // 没有文件需要删除也算成功
+            return true;
         } catch (Exception e) {
-            log.error("MinIO删除失败: {}", task.getFilename(), e);
+            log.error("MinIO 删除失败: {}", task.getFilename(), e);
             return false;
         }
     }
 
-    /**
-     * 保存任务状态到Redis（供前端查询）
-     */
     private void saveTaskStatus(FileDeleteTask task) {
         try {
-            String key = DELETE_TASK_PREFIX + task.getTaskId();
-            redisTemplate.opsForValue().set(key, task, TASK_EXPIRE_HOURS, TimeUnit.HOURS);
-            log.info("任务状态已保存: taskId={}", task.getTaskId());
+            redisTemplate.opsForValue().set(DELETE_TASK_PREFIX + task.getTaskId(), task, TASK_EXPIRE_HOURS, TimeUnit.HOURS);
         } catch (Exception e) {
             log.error("保存任务状态失败: {}", task.getTaskId(), e);
+        }
+    }
+
+    private void safeAck(Channel channel, long deliveryTag) {
+        try {
+            if (channel.isOpen()) {
+                channel.basicAck(deliveryTag, false);
+            }
+        } catch (Exception e) {
+            log.error("消息确认失败: deliveryTag={}", deliveryTag, e);
         }
     }
 }

@@ -1,8 +1,10 @@
 package com.example.demo.Controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.example.demo.model.dto.ApiResponse;
 import com.example.demo.model.dto.FileExistenceResponse;
 import com.example.demo.model.dto.UploadResponse;
+import com.example.demo.service.AuthContextService;
 import com.example.demo.service.UploadApplicationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -26,6 +28,7 @@ import java.util.List;
 public class UploadController {
 
     private final UploadApplicationService uploadApplicationService;
+    private final AuthContextService authContextService;
 
     /**
      * 检查文件是否已存在。
@@ -33,10 +36,11 @@ public class UploadController {
      * @param fileHash 文件 SHA-256 哈希值
      * @param userId 用户 ID
      */
+    @SaCheckPermission("upload:check")
     @GetMapping("/check")
     public ApiResponse<FileExistenceResponse> checkFileExists(@RequestParam("fileHash") String fileHash,
                                                               @RequestParam("userId") String userId) {
-        return uploadApplicationService.checkFileExists(fileHash, userId);
+        return uploadApplicationService.checkFileExists(fileHash, authContextService.resolveUserId(userId));
     }
 
     /**
@@ -46,11 +50,12 @@ public class UploadController {
      * @param fileHash 文件 SHA-256 哈希值
      * @param userId 用户 ID
      */
+    @SaCheckPermission("upload:file")
     @PostMapping
     public ApiResponse<UploadResponse> uploadFile(@RequestParam("file") MultipartFile file,
                                                   @RequestParam("fileHash") String fileHash,
                                                   @RequestParam("userId") String userId) {
-        return uploadApplicationService.uploadFile(file, fileHash, userId);
+        return uploadApplicationService.uploadFile(file, fileHash, authContextService.resolveUserId(userId));
     }
 
     /**
@@ -60,10 +65,11 @@ public class UploadController {
      * @param fileHashes 文件哈希列表
      * @param userId 用户 ID
      */
+    @SaCheckPermission("upload:batch")
     @PostMapping("/batch")
     public ApiResponse<List<UploadResponse>> uploadFiles(@RequestParam("files") MultipartFile[] files,
                                                          @RequestParam("fileHashes") String[] fileHashes,
                                                          @RequestParam("userId") String userId) {
-        return uploadApplicationService.uploadFiles(files, fileHashes, userId);
+        return uploadApplicationService.uploadFiles(files, fileHashes, authContextService.resolveUserId(userId));
     }
 }

@@ -8,6 +8,7 @@ import com.alibaba.cloud.ai.dashscope.rerank.DashScopeRerankOptions;
 import com.alibaba.cloud.ai.memory.redis.RedisChatMemoryRepository;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.prompt.ChatOptions;
 
@@ -21,7 +22,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class Aiconfig {
     @Value("${spring.ai.dashscope.api-key}")
-    private static String API_KEY ;
+    private String API_KEY;
 
     @Bean
     public DashScopeApi dashScopeApi() {
@@ -77,6 +78,13 @@ public class Aiconfig {
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(windowChatMemory).build())
                 .defaultOptions(ChatOptions.builder().model("qwen-plus").build())
                 .defaultToolCallbacks(tools.getToolCallbacks())
+                .build();
+    }
+
+    @Bean("summaryChatClient")
+    public ChatClient summaryChatClient(@Qualifier("deepchat") ChatModel chatModel) {
+        return ChatClient.builder(chatModel)
+                .defaultOptions(ChatOptions.builder().model("qwen-plus").build())
                 .build();
     }
 

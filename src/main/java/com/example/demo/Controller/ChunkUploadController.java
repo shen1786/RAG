@@ -1,10 +1,12 @@
 package com.example.demo.Controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.example.demo.model.dto.ApiResponse;
 import com.example.demo.model.dto.ChunkUploadResponse;
 import com.example.demo.model.dto.MergeChunkResult;
 import com.example.demo.model.dto.UploadChunkResult;
 import com.example.demo.model.dto.UploadResponse;
+import com.example.demo.service.AuthContextService;
 import com.example.demo.service.ChunkUploadApplicationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -26,6 +28,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class ChunkUploadController {
 
     private final ChunkUploadApplicationService chunkUploadApplicationService;
+    private final AuthContextService authContextService;
 
     /**
      * 检查分片上传状态。
@@ -36,13 +39,14 @@ public class ChunkUploadController {
      * @param fileSize 文件大小
      * @param totalChunks 总分片数
      */
+    @SaCheckPermission("upload:chunk:check")
     @GetMapping("/check")
     public ApiResponse<ChunkUploadResponse> checkUploadStatus(@RequestParam("fileHash") String fileHash,
                                                               @RequestParam("userId") String userId,
                                                               @RequestParam("filename") String filename,
                                                               @RequestParam("fileSize") Long fileSize,
                                                               @RequestParam("totalChunks") Integer totalChunks) {
-        return chunkUploadApplicationService.checkUploadStatus(fileHash, userId, filename, fileSize, totalChunks);
+        return chunkUploadApplicationService.checkUploadStatus(fileHash, authContextService.resolveUserId(userId), filename, fileSize, totalChunks);
     }
 
     /**
@@ -53,12 +57,13 @@ public class ChunkUploadController {
      * @param chunkNumber 分片编号
      * @param chunk 分片文件
      */
+    @SaCheckPermission("upload:chunk:file")
     @PostMapping
     public ApiResponse<UploadChunkResult> uploadChunk(@RequestParam("fileHash") String fileHash,
                                                       @RequestParam("userId") String userId,
                                                       @RequestParam("chunkNumber") Integer chunkNumber,
                                                       @RequestParam("chunk") MultipartFile chunk) {
-        return chunkUploadApplicationService.uploadChunk(fileHash, userId, chunkNumber, chunk);
+        return chunkUploadApplicationService.uploadChunk(fileHash, authContextService.resolveUserId(userId), chunkNumber, chunk);
     }
 
     /**
@@ -68,10 +73,11 @@ public class ChunkUploadController {
      * @param userId 用户 ID
      * @param filename 文件名
      */
+    @SaCheckPermission("upload:chunk:merge")
     @PostMapping("/merge")
     public ApiResponse<MergeChunkResult> mergeChunks(@RequestParam("fileHash") String fileHash,
                                                      @RequestParam("userId") String userId,
                                                      @RequestParam("filename") String filename) {
-        return chunkUploadApplicationService.mergeChunks(fileHash, userId, filename);
+        return chunkUploadApplicationService.mergeChunks(fileHash, authContextService.resolveUserId(userId), filename);
     }
 }
