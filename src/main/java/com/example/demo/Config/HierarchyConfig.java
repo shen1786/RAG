@@ -14,4 +14,6 @@ public class HierarchyConfig {
     private int midRerankTopK = 4;
     private int leafRerankTopK = 8;
     private boolean rebuildOnStartup = true;
+    private int summaryTimeoutSeconds = 20;
+    private int summaryFailureCooldownSeconds = 120;
 }

@@ -6,6 +6,9 @@ import com.alibaba.cloud.ai.model.RerankRequest;
 import com.alibaba.cloud.ai.model.RerankResponse;
 import com.example.demo.Config.HierarchyConfig;
 import com.example.demo.mapper.RagUnitMapper;
+import com.example.demo.model.RagNodeType;
+import com.example.demo.model.RagUnit;
+import com.example.demo.model.SourceType;
 import com.example.demo.model.dto.RetrievalMode;
 import com.example.demo.model.dto.RetrievalResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +18,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.filter.FilterExpressionTextParser;
+import org.springframework.ai.vectorstore.redis.RedisFilterExpressionConverter;
+import org.springframework.ai.vectorstore.redis.RedisVectorStore;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -29,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -158,6 +165,61 @@ class RagRetrievalServiceTest {
         assertTrue(result.getDocuments().isEmpty());
     }
 
+    @Test
+    void shouldExpandNeighborLeavesIntoKnowledgeTextAfterRerank() {
+        Document target = doc("leaf-2", "1.编程实现“第二日”问题，为后续的测试做准备。", 0.91);
+        RagUnit title = leafUnit("leaf-1", "实验一 黑盒测试（1） 一、实验目的：", 1);
+        RagUnit matched = leafUnit("leaf-2", "1.编程实现“第二日”问题，为后续的测试做准备。", 2);
+        RagUnit next = leafUnit("leaf-3", "2.通过“第二日”问题的等价类划分，掌握等价类方法及测试用例的设计。", 3);
+
+        when(summaryVectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
+        when(leafVectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(target));
+        when(rerankModel.call(any(RerankRequest.class))).thenReturn(new RerankResponse(List.of(
+                scored(target, 0.91)
+        )));
+        when(ragUnitMapper.selectBatchIds(anyList())).thenReturn(List.of(matched));
+        when(ragUnitMapper.selectList(any())).thenReturn(List.of(title, matched, next));
+
+        RetrievalResult result = ragRetrievalService.retrieveWithMultiPathRecall(
+                "实验一中第二日问题的目的是什么？",
+                List.of("第二日问题 实验目的"),
+                "u1"
+        );
+
+        assertTrue(result.isHit());
+        assertTrue(result.getKnowledgeText().contains("实验一 黑盒测试（1） 一、实验目的"));
+        assertTrue(result.getKnowledgeText().contains("1.编程实现“第二日”问题"));
+        assertTrue(result.getKnowledgeText().contains("2.通过“第二日”问题的等价类划分"));
+    }
+
+    @Test
+    void shouldEscapeUserIdInRedisTagFilterExpression() {
+        String userId = "fb732c63-44f7-4666-b884-f6524298afe0";
+
+        String filterExpression = ReflectionTestUtils.invokeMethod(
+                ragRetrievalService,
+                "buildUserFilterExpression",
+                userId
+        );
+
+        assertEquals(
+                "user_id == 'fb732c63\\-44f7\\-4666\\-b884\\-f6524298afe0'",
+                filterExpression
+        );
+
+        FilterExpressionTextParser parser = new FilterExpressionTextParser();
+        RedisFilterExpressionConverter converter = new RedisFilterExpressionConverter(
+                List.of(RedisVectorStore.MetadataField.tag("user_id"))
+        );
+
+        String nativeExpression = converter.convertExpression(parser.parse(filterExpression));
+
+        assertEquals(
+                "@user_id:{fb732c63\\-44f7\\-4666\\-b884\\-f6524298afe0}",
+                nativeExpression
+        );
+    }
+
     private static Document doc(String id, String text, double score) {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("score", score);
@@ -174,5 +236,20 @@ class RagRetrievalServiceTest {
         result.setDocument(document);
         result.setScore(score);
         return result;
+    }
+
+    private static RagUnit leafUnit(String id, String content, int chunkIndex) {
+        RagUnit unit = new RagUnit();
+        unit.setId(id);
+        unit.setSourceId("source-1");
+        unit.setFileHash("hash-1");
+        unit.setUserId("u1");
+        unit.setFilename("3-软件测试技术-实验指导书-0515.doc");
+        unit.setSourceType(SourceType.TEXT);
+        unit.setNodeType(RagNodeType.LEAF);
+        unit.setContent(content);
+        unit.setChunkIndex(chunkIndex);
+        unit.setTreeLevel(0);
+        return unit;
     }
 }

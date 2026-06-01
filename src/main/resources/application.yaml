@@ -92,7 +92,7 @@ spring:
 minio:
   endpoint: http://39.108.175.183:9000
   access-key: minioadmin
-  secret-key: minioadmin
+  secret-key: ${MINIO_SECRET_KEY:}
   bucket: rag-knowledge
 
 # 鏂囦欢涓婁紶閰嶇疆
@@ -149,4 +149,33 @@ rag:
   rerank:
     # Rerank 妯″瀷鍚嶇О锛圖ashScope 鎻愪緵锛?
     model: gte-rerank-v2
+
+# Sa-Token 閰嶇疆
+sa-token:
+  # token 鍚嶇О锛堝墠绔€氳繃 header satoken 浼犻€掞級
+  token-name: satoken
+  # token 鏈夋晥鏈燂紙绉掞級锛岄粯璁?0澶?
+  timeout: 2592000
+  # token 鏈€浣庢椿璺冮鐜囷紙绉掞級锛岃秴杩囨鏃堕棿鏃犳搷浣滃垯 token 杩囨湡锛?1 琛ㄧず涓嶉檺
+  active-timeout: -1
+  # 鏄惁鍏佽鍚屼竴璐﹀彿澶氬湴鍚屾椂鐧诲綍
+  is-concurrent: true
+  # 鍦ㄥ浜虹櫥褰曞悓涓€璐﹀彿鏃讹紝鏄惁鍏辩敤涓€涓?token
+  is-share: false
+  # token 椋庢牸
+  token-style: uuid
+
+auth:
+  password-recovery:
+    expose-reset-code: false
+
+app:
+  mail:
+    from: ${spring.mail.username:}
+    fallback-dir: ./temp/emails
+
+mineru:
+  api-key: ${MINERU_API_KEY:}
+  model-version: vlm
+
 

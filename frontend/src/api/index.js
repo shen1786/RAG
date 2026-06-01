@@ -69,6 +69,7 @@ export const ai = {
 
 export const documents = {
   list: (params) => API.get('/api/documents', { params }),
+  getStatus: (fileHash, userId) => API.get(`/api/documents/status/${fileHash}`, { params: { userId } }),
   delete: (fileHash, userId) => API.delete(`/api/documents/${fileHash}`, { params: { userId } }),
   getDeleteStatus: (taskId) => API.get(`/api/documents/delete-status/${taskId}`)
 }

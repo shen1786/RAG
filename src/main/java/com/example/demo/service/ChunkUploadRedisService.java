@@ -8,6 +8,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -67,7 +68,19 @@ public class ChunkUploadRedisService {
     public ChunkUploadStatus getUploadStatus(String userId, String fileHash) {
         String key = getKey(userId, fileHash);
         Object obj = redisTemplate.opsForValue().get(key);
-        return obj != null ? (ChunkUploadStatus) obj : null;
+        if (obj == null) {
+            return null;
+        }
+
+        ChunkUploadStatus status = (ChunkUploadStatus) obj;
+        Set<Integer> uploadedChunks = getUploadedChunks(userId, fileHash);
+        status.setUploadedChunks(uploadedChunks);
+        if (status.getTotalChunks() != null
+                && uploadedChunks.size() >= status.getTotalChunks()
+                && status.getStatus() == ChunkUploadStatus.UploadStatus.UPLOADING) {
+            status.setStatus(ChunkUploadStatus.UploadStatus.COMPLETED);
+        }
+        return status;
     }
 
     /**
@@ -90,6 +103,7 @@ public class ChunkUploadRedisService {
 
         // 3. 从 Redis SET 获取所有已上传分片数量
         Long uploadedCount = redisTemplate.opsForSet().size(chunkSetKey);
+        status.setUploadedChunks(getUploadedChunks(userId, fileHash));
         status.setUpdateTime(System.currentTimeMillis());
 
         // 4. 检查是否所有分片都已上传
@@ -136,5 +150,41 @@ public class ChunkUploadRedisService {
             redisTemplate.opsForValue().set(key, status, expireHours, TimeUnit.HOURS);
             log.error("标记上传失败: userId={}, fileHash={}", userId, fileHash);
         }
+    }
+
+    private Set<Integer> getUploadedChunks(String userId, String fileHash) {
+        String chunkSetKey = getChunkSetKey(userId, fileHash);
+        Set<Object> members = redisTemplate.opsForSet().members(chunkSetKey);
+        if (members == null || members.isEmpty()) {
+            return new HashSet<>();
+        }
+
+        Set<Integer> uploadedChunks = new HashSet<>();
+        for (Object member : members) {
+            Integer chunkNumber = toInteger(member);
+            if (chunkNumber != null) {
+                uploadedChunks.add(chunkNumber);
+            }
+        }
+        return uploadedChunks;
+    }
+
+    private Integer toInteger(Object value) {
+        if (value instanceof Integer integerValue) {
+            return integerValue;
+        }
+        if (value instanceof Number numberValue) {
+            return numberValue.intValue();
+        }
+        if (value instanceof String stringValue) {
+            try {
+                return Integer.parseInt(stringValue);
+            } catch (NumberFormatException ex) {
+                log.warn("无法将 Redis 分片编号转换为整数: {}", stringValue);
+                return null;
+            }
+        }
+        log.warn("忽略无法识别的 Redis 分片编号类型: {}", value != null ? value.getClass().getName() : "null");
+        return null;
     }
 }

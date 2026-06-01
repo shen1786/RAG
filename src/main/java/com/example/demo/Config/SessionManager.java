@@ -42,7 +42,7 @@ public class SessionManager {
         redisTemplate.opsForHash().put(sessionInfoKey, "userId", userId);
         redisTemplate.opsForHash().put(sessionInfoKey, "createdAt", String.valueOf(System.currentTimeMillis()));
 
-        log.info("Created new session: {} for user: {}", sessionId, userId);
+        log.info("已为用户 {} 创建新会话: {}", userId, sessionId);
         return sessionId;
     }
 
@@ -79,15 +79,15 @@ public class SessionManager {
         try {
             Boolean deleted = redisTemplate.delete(chatMemoryKey);
             if (Boolean.TRUE.equals(deleted)) {
-                log.info("Deleted chat memory for session: {}", sessionId);
+                log.info("已删除会话 {} 的聊天记忆", sessionId);
             } else {
-                log.warn("Chat memory key not found for session: {}", sessionId);
+                log.warn("未找到会话 {} 的聊天记忆键", sessionId);
             }
         } catch (Exception e) {
-            log.error("Failed to delete chat memory for session: {}", sessionId, e);
+            log.error("删除会话 {} 的聊天记忆失败", sessionId, e);
         }
 
-        log.info("Deleted session: {} for user: {}", sessionId, userId);
+        log.info("已为用户 {} 删除会话: {}", userId, sessionId);
     }
 
     /**

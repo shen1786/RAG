@@ -12,7 +12,7 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -26,13 +26,16 @@ public class FileProcessConsumer {
     private final RagUnitService ragUnitService;
     private final DocumentFileService documentFileService;
     private final HierarchicalIndexingService hierarchicalIndexingService;
+    private final TransactionTemplate transactionTemplate;
 
     public FileProcessConsumer(RagUnitService ragUnitService,
                                DocumentFileService documentFileService,
-                               HierarchicalIndexingService hierarchicalIndexingService) {
+                               HierarchicalIndexingService hierarchicalIndexingService,
+                               TransactionTemplate transactionTemplate) {
         this.ragUnitService = ragUnitService;
         this.documentFileService = documentFileService;
         this.hierarchicalIndexingService = hierarchicalIndexingService;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @RabbitListener(queues = RabbitMQConfig.FILE_PROCESS_QUEUE)
@@ -83,6 +86,7 @@ public class FileProcessConsumer {
             safeAck(channel, deliveryTag);
         } catch (Exception e) {
             log.error("文件处理失败: {}", task.getFilename(), e);
+            cleanupPartialData(task);
             if (task.getFileHash() != null && documentFileService.isActive(task.getUserId(), task.getFileHash())) {
                 documentFileService.markFailed(task.getUserId(), task.getFileHash(), normalizeErrorMessage(e));
             }
@@ -90,7 +94,7 @@ public class FileProcessConsumer {
         }
     }
 
-    private InputStream downloadFromMinio(String minioUrl) throws Exception {
+    protected InputStream downloadFromMinio(String minioUrl) throws Exception {
         URL url = new URL(minioUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setConnectTimeout(10000);
@@ -98,34 +102,50 @@ public class FileProcessConsumer {
         return connection.getInputStream();
     }
 
-    @Transactional(rollbackFor = Exception.class)
     public void saveDataWithTransaction(List<RagUnit> units, FileProcessTask task) throws Exception {
-        ensureFileActive(task.getUserId(), task.getFileHash());
+        transactionTemplate.executeWithoutResult(status -> {
+            try {
+                ensureFileActive(task.getUserId(), task.getFileHash());
 
-        for (RagUnit unit : units) {
-            unit.setSourceId(task.getSourceId());
-            unit.setFileHash(task.getFileHash());
-            unit.setUserId(task.getUserId());
-            unit.setFilename(task.getFilename());
-            unit.setMinioPath(task.getMinioPath());
-            unit.setMinioUrl(task.getMinioUrl());
-        }
+                for (RagUnit unit : units) {
+                    unit.setSourceId(task.getSourceId());
+                    unit.setFileHash(task.getFileHash());
+                    unit.setUserId(task.getUserId());
+                    unit.setFilename(task.getFilename());
+                    unit.setMinioPath(task.getMinioPath());
+                    unit.setMinioUrl(task.getMinioUrl());
+                }
 
-        // 这里保存的是整棵树的所有节点，而不只是原始叶子 chunk。
-        if (!units.isEmpty()) {
-            ragUnitService.saveBatch(units);
-        }
+                if (!units.isEmpty()) {
+                    ragUnitService.saveBatch(units);
+                }
 
-        int leafCount = hierarchicalIndexingService.countLeafNodes(units);
+                int leafCount = hierarchicalIndexingService.countLeafNodes(units);
 
-        ensureFileActive(task.getUserId(), task.getFileHash());
-        if (task.getFileHash() != null) {
-            documentFileService.updateStatus(task.getUserId(), task.getFileHash(), DocumentFileStatus.VECTORIZING, leafCount, null);
-        }
+                ensureFileActive(task.getUserId(), task.getFileHash());
+                if (task.getFileHash() != null) {
+                    documentFileService.updateStatus(task.getUserId(), task.getFileHash(), DocumentFileStatus.VECTORIZING, leafCount, null);
+                }
 
-        // 向量写入时由 RagUnitService 根据 nodeType 自动分流到叶子库和摘要库。
-        if (!units.isEmpty()) {
-            ragUnitService.addUnitsToVectorStores(units, task.getFilename());
+                if (!units.isEmpty()) {
+                    ragUnitService.addUnitsToVectorStores(units, task.getFilename());
+                }
+            } catch (RuntimeException e) {
+                status.setRollbackOnly();
+                throw e;
+            } catch (Exception e) {
+                status.setRollbackOnly();
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private void cleanupPartialData(FileProcessTask task) {
+        try {
+            ragUnitService.removeIndexedData(task.getSourceId());
+        } catch (Exception cleanupError) {
+            log.error("文件处理失败后清理残留数据失败: sourceId={}, filename={}",
+                    task.getSourceId(), task.getFilename(), cleanupError);
         }
     }
 

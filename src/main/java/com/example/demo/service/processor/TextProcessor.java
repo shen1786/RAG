@@ -48,7 +48,8 @@ public class TextProcessor implements MediaProcessor {
     public List<RagUnit> process(InputStream input, String filename, String mimeType) {
         log.info("[TextProcessor] 使用本地文本回退链路处理文件: {}", filename);
         try {
-            String rawText = new String(input.readAllBytes(), StandardCharsets.UTF_8).trim();
+            byte[] bytes = input.readAllBytes();
+            String rawText = readStringWithFallback(bytes).trim();
             if (rawText.isBlank()) {
                 return List.of();
             }
@@ -61,6 +62,10 @@ public class TextProcessor implements MediaProcessor {
 
     @Override
     public List<RagUnit> process(InputStream input, String filename, String mimeType, String fileUrl) {
+        if (filename != null && filename.toLowerCase().endsWith(".txt")) {
+            log.info("[TextProcessor] 检测为 .txt 纯文本文件，直接使用本地编码自适应文本切片: {}", filename);
+            return process(input, filename, mimeType);
+        }
         try {
             log.info("[TextProcessor] 优先使用 MinerU 解析文本文件: {}, URL: {}", filename, fileUrl);
             String markdownText = minerUClient.extractText(fileUrl, filename);
@@ -72,6 +77,22 @@ public class TextProcessor implements MediaProcessor {
         } catch (Exception e) {
             log.warn("[TextProcessor] MinerU 解析失败，回退到本地文本切片: {}, error={}", filename, e.getMessage());
             return process(input, filename, mimeType);
+        }
+    }
+
+    private String readStringWithFallback(byte[] bytes) {
+        try {
+            java.nio.charset.CharsetDecoder decoder = java.nio.charset.StandardCharsets.UTF_8.newDecoder();
+            decoder.onMalformedInput(java.nio.charset.CodingErrorAction.REPORT);
+            decoder.onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
+            java.nio.CharBuffer buffer = decoder.decode(java.nio.ByteBuffer.wrap(bytes));
+            return buffer.toString();
+        } catch (Exception e) {
+            try {
+                return new String(bytes, java.nio.charset.Charset.forName("GB18030"));
+            } catch (Exception ex) {
+                return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            }
         }
     }
 

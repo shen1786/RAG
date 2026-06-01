@@ -24,21 +24,41 @@ import java.util.List;
 public class TabularRowChunker {
 
     public List<RagUnit> chunkCsv(InputStream input, String filename, SourceType sourceType) {
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
-             CSVParser parser = CSVFormat.DEFAULT.builder()
+        try {
+            byte[] bytes = input.readAllBytes();
+            String rawText = readStringWithFallback(bytes);
+            java.io.StringReader reader = new java.io.StringReader(rawText);
+            try (CSVParser parser = CSVFormat.DEFAULT.builder()
                      .setTrim(true)
                      .setIgnoreEmptyLines(true)
                      .build()
                      .parse(reader)) {
-            List<RowPayload> rows = new ArrayList<>();
-            for (CSVRecord record : parser) {
-                List<String> values = new ArrayList<>();
-                record.forEach(values::add);
-                rows.add(new RowPayload(filename, record.getRecordNumber(), values));
+                List<RowPayload> rows = new ArrayList<>();
+                for (CSVRecord record : parser) {
+                    List<String> values = new ArrayList<>();
+                    record.forEach(values::add);
+                    rows.add(new RowPayload(filename, record.getRecordNumber(), values));
+                }
+                return buildUnits(rows, filename, sourceType, false);
             }
-            return buildUnits(rows, filename, sourceType, false);
         } catch (IOException e) {
             throw new RuntimeException("CSV 行切片失败: " + filename, e);
+        }
+    }
+
+    private String readStringWithFallback(byte[] bytes) {
+        try {
+            java.nio.charset.CharsetDecoder decoder = java.nio.charset.StandardCharsets.UTF_8.newDecoder();
+            decoder.onMalformedInput(java.nio.charset.CodingErrorAction.REPORT);
+            decoder.onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
+            java.nio.CharBuffer buffer = decoder.decode(java.nio.ByteBuffer.wrap(bytes));
+            return buffer.toString();
+        } catch (Exception e) {
+            try {
+                return new String(bytes, java.nio.charset.Charset.forName("GB18030"));
+            } catch (Exception ex) {
+                return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            }
         }
     }
 

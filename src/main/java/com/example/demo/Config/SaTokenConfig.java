@@ -19,7 +19,15 @@ public class SaTokenConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new SaInterceptor(handle -> StpUtil.checkLogin()))
+        registry.addInterceptor(new SaInterceptor(handle -> StpUtil.checkLogin()) {
+            @Override
+            public boolean preHandle(jakarta.servlet.http.HttpServletRequest request, jakarta.servlet.http.HttpServletResponse response, Object handler) throws Exception {
+                if (request.getDispatcherType() == jakarta.servlet.DispatcherType.ASYNC) {
+                    return true;
+                }
+                return super.preHandle(request, response, handler);
+            }
+        })
                 .addPathPatterns("/**")
                 .excludePathPatterns(
                         "/auth/login",

@@ -31,13 +31,19 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 @Slf4j
 public class RagUnitService {
+
+    private static final int VECTOR_BATCH_SIZE = 10;
+    private static final int VECTOR_ADD_MAX_RETRIES = 3;
+    private static final long VECTOR_ADD_RETRY_DELAY_MS = 200L;
 
     private final RagUnitMapper ragUnitMapper;
     private final UploadService uploadService;
@@ -337,18 +343,24 @@ public class RagUnitService {
     }
 
     public void removeIndexedData(String sourceId) {
-        List<RagUnit> existingUnits = getUnitsBySourceId(sourceId);
-        if (existingUnits.isEmpty()) {
-            return;
-        }
+        removeIndexedData(sourceId, List.of());
+    }
 
-        List<String> ids = new ArrayList<>();
+    public void removeIndexedData(String sourceId, List<String> fallbackUnitIds) {
+        List<RagUnit> existingUnits = getUnitsBySourceId(sourceId);
+        Set<String> ids = new LinkedHashSet<>();
         for (RagUnit unit : existingUnits) {
             ids.add(unit.getId());
         }
+        if (fallbackUnitIds != null) {
+            ids.addAll(fallbackUnitIds);
+        }
 
-        leafVectorStore.delete(ids);
-        summaryVectorStore.delete(ids);
+        if (!ids.isEmpty()) {
+            List<String> vectorIds = new ArrayList<>(ids);
+            leafVectorStore.delete(vectorIds);
+            summaryVectorStore.delete(vectorIds);
+        }
 
         QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
         wrapper.eq("source_id", sourceId);
@@ -384,10 +396,74 @@ public class RagUnitService {
     }
 
     private void batchAdd(VectorStore vectorStore, List<Document> documents) {
-        int batchSize = 20; // 限制每批最多 20 条，安全避开 DashScope text-embedding-v3 API 限制最多 25 条的规定
-        for (int i = 0; i < documents.size(); i += batchSize) {
-            List<Document> batch = documents.subList(i, Math.min(i + batchSize, documents.size()));
-            vectorStore.add(batch);
+        for (int i = 0; i < documents.size(); i += VECTOR_BATCH_SIZE) {
+            List<Document> batch = documents.subList(i, Math.min(i + VECTOR_BATCH_SIZE, documents.size()));
+            addBatchWithRetry(vectorStore, batch);
+        }
+    }
+
+    private void addBatchWithRetry(VectorStore vectorStore, List<Document> batch) {
+        RuntimeException batchFailure = null;
+
+        for (int attempt = 1; attempt <= VECTOR_ADD_MAX_RETRIES; attempt++) {
+            try {
+                vectorStore.add(batch);
+                return;
+            } catch (RuntimeException e) {
+                batchFailure = e;
+                log.warn("向量批量写入失败，准备重试: attempt={}/{}, size={}, firstDocumentId={}",
+                        attempt, VECTOR_ADD_MAX_RETRIES, batch.size(), batch.get(0).getId(), e);
+                sleepBeforeRetry(attempt);
+            }
+        }
+
+        if (batch.size() == 1) {
+            throw new RuntimeException("向量写入失败，documentId=" + batch.get(0).getId(), batchFailure);
+        }
+
+        log.warn("向量批量写入持续失败，降级为逐条写入: size={}, firstDocumentId={}",
+                batch.size(), batch.get(0).getId(), batchFailure);
+
+        List<String> failedDocumentIds = new ArrayList<>();
+        RuntimeException singleFailure = null;
+        for (Document document : batch) {
+            try {
+                addSingleWithRetry(vectorStore, document);
+            } catch (RuntimeException e) {
+                failedDocumentIds.add(document.getId());
+                singleFailure = e;
+            }
+        }
+
+        if (!failedDocumentIds.isEmpty()) {
+            throw new RuntimeException("向量写入失败，documentIds=" + String.join(",", failedDocumentIds), singleFailure);
+        }
+    }
+
+    private void addSingleWithRetry(VectorStore vectorStore, Document document) {
+        RuntimeException lastFailure = null;
+
+        for (int attempt = 1; attempt <= VECTOR_ADD_MAX_RETRIES; attempt++) {
+            try {
+                vectorStore.add(List.of(document));
+                return;
+            } catch (RuntimeException e) {
+                lastFailure = e;
+                log.warn("向量单条写入失败，准备重试: attempt={}/{}, documentId={}",
+                        attempt, VECTOR_ADD_MAX_RETRIES, document.getId(), e);
+                sleepBeforeRetry(attempt);
+            }
+        }
+
+        throw new RuntimeException("向量写入失败，documentId=" + document.getId(), lastFailure);
+    }
+
+    private void sleepBeforeRetry(int attempt) {
+        try {
+            Thread.sleep(VECTOR_ADD_RETRY_DELAY_MS * attempt);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("向量写入重试被中断", e);
         }
     }
 

@@ -41,7 +41,7 @@ public class ImageProcessor implements MediaProcessor {
 
     @Override
     public List<RagUnit> process(InputStream input, String filename, String mimeType) {
-        log.warn("ImageProcessor.process called without URL, using filename as description");
+        log.warn("ImageProcessor.process 被调用，但未提供 URL，使用文件名作为描述");
         return createFallbackUnit(filename);
     }
 

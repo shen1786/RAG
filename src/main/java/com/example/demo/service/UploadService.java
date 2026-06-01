@@ -41,10 +41,10 @@ public class UploadService {
                             .build()
             );
 
-            log.info("File uploaded successfully: {}", fileName);
+            log.info("文件上传成功: {}", fileName);
             return fileName;
         } catch (Exception e) {
-            log.error("Error uploading file to MinIO", e);
+            log.error("上传文件到 MinIO 失败", e);
             throw new RuntimeException("Failed to upload file to MinIO", e);
         }
     }
@@ -74,7 +74,7 @@ public class UploadService {
                             .build()
             );
         } catch (Exception e) {
-            log.error("Error getting file URL", e);
+            log.error("获取文件预签名 URL 失败", e);
             return "";
         }
     }
@@ -91,9 +91,9 @@ public class UploadService {
                             .object(fileName)
                             .build()
             );
-            log.info("File deleted from MinIO: {}", fileName);
+            log.info("已从 MinIO 删除文件: {}", fileName);
         } catch (Exception e) {
-            log.error("Error deleting file from MinIO", e);
+            log.error("从 MinIO 删除文件失败", e);
             throw new RuntimeException("Failed to delete file from MinIO", e);
         }
     }
@@ -103,10 +103,10 @@ public class UploadService {
             boolean found = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
             if (!found) {
                 minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
-                log.info("Bucket created: {}", bucketName);
+                log.info("已创建 MinIO 桶: {}", bucketName);
             }
         } catch (Exception e) {
-            log.error("Error checking/creating bucket", e);
+            log.error("检查/创建 MinIO 桶失败", e);
             throw new RuntimeException("MinIO bucket error", e);
         }
     }

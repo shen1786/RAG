@@ -14,6 +14,8 @@ import redis.clients.jedis.DefaultJedisClientConfig;
 import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.JedisPooled;
 
+import java.util.List;
+
 @Configuration
 public class VectorStoreConfig {
 
@@ -30,6 +32,7 @@ public class VectorStoreConfig {
                 .observationRegistry(observationRegistryProvider.getIfAvailable(() -> ObservationRegistry.NOOP))
                 .indexName(indexName)
                 .prefix(prefix)
+                .metadataFields(defaultMetadataFields())
                 .build();
     }
 
@@ -45,7 +48,26 @@ public class VectorStoreConfig {
                 .observationRegistry(observationRegistryProvider.getIfAvailable(() -> ObservationRegistry.NOOP))
                 .indexName(indexName)
                 .prefix(prefix)
+                .metadataFields(defaultMetadataFields())
                 .build();
+    }
+
+    static List<RedisVectorStore.MetadataField> defaultMetadataFields() {
+        return List.of(
+                RedisVectorStore.MetadataField.tag("source_id"),
+                RedisVectorStore.MetadataField.tag("source_type"),
+                RedisVectorStore.MetadataField.tag("unit_id"),
+                RedisVectorStore.MetadataField.tag("user_id"),
+                RedisVectorStore.MetadataField.tag("node_type"),
+                RedisVectorStore.MetadataField.tag("parent_id"),
+                RedisVectorStore.MetadataField.text("filename"),
+                RedisVectorStore.MetadataField.text("title"),
+                RedisVectorStore.MetadataField.numeric("tree_level"),
+                RedisVectorStore.MetadataField.numeric("child_count"),
+                RedisVectorStore.MetadataField.numeric("chunk_index"),
+                RedisVectorStore.MetadataField.numeric("start_time"),
+                RedisVectorStore.MetadataField.numeric("end_time")
+        );
     }
 
     private JedisPooled jedisPooled(JedisConnectionFactory jedisConnectionFactory) {

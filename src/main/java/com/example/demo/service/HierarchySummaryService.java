@@ -9,8 +9,20 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PreDestroy;
 import java.util.List;
 import java.util.StringJoiner;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
+
+import com.example.demo.Config.HierarchyConfig;
 
 @Service
 @Slf4j
@@ -18,11 +30,22 @@ public class HierarchySummaryService {
 
     private final ChatClient summaryChatClient;
     private final ObjectMapper objectMapper;
+    private final AtomicLong summaryFallbackUntilEpochMs = new AtomicLong(0L);
+    private final int summaryTimeoutSeconds;
+    private final int summaryFailureCooldownSeconds;
+    private final ExecutorService summaryExecutor = Executors.newCachedThreadPool(runnable -> {
+        Thread thread = new Thread(runnable, "hierarchy-summary");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public HierarchySummaryService(@Qualifier("summaryChatClient") ChatClient summaryChatClient,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   HierarchyConfig hierarchyConfig) {
         this.summaryChatClient = summaryChatClient;
         this.objectMapper = objectMapper;
+        this.summaryTimeoutSeconds = Math.max(1, hierarchyConfig.getSummaryTimeoutSeconds());
+        this.summaryFailureCooldownSeconds = Math.max(1, hierarchyConfig.getSummaryFailureCooldownSeconds());
     }
 
     public SummaryPayload summarizeSection(String filename, int sectionIndex, List<RagUnit> leaves) {
@@ -57,6 +80,10 @@ public class HierarchySummaryService {
         if (normalizedContent.isBlank()) {
             return fallback(normalizedContent, fallbackTitle);
         }
+        if (isSummaryFallbackCoolingDown()) {
+            log.warn("层级摘要服务处于冷却期，直接使用兜底标题={}", fallbackTitle);
+            return fallback(normalizedContent, fallbackTitle);
+        }
 
         // 这里强约束模型只返回 JSON，避免自然语言说明影响解析。
         String prompt = """
@@ -73,10 +100,20 @@ public class HierarchySummaryService {
                 """.formatted(taskInstruction, normalizedContent);
 
         try {
-            String response = summaryChatClient.prompt()
-                    .user(prompt)
-                    .call()
-                    .content();
+            Future<String> summaryFuture = summaryExecutor.submit(() ->
+                    summaryChatClient.prompt()
+                            .user(prompt)
+                            .call()
+                            .content()
+            );
+
+            String response;
+            try {
+                response = summaryFuture.get(summaryTimeoutSeconds, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                summaryFuture.cancel(true);
+                throw e;
+            }
 
             SummaryPayload payload = objectMapper.readValue(cleanJson(response), SummaryPayload.class);
             if (payload == null || payload.isBlank()) {
@@ -91,9 +128,37 @@ public class HierarchySummaryService {
             return payload;
         } catch (Exception e) {
             // 摘要失败时不中断整条索引链路，而是退回规则摘要兜底。
-            log.warn("Failed to generate hierarchy summary, using fallback title={}", fallbackTitle, e);
+            markSummaryFallbackCooldown(e);
+            log.warn("生成层级摘要失败，使用兜底标题={}, timeout={}s", fallbackTitle, summaryTimeoutSeconds, e);
             return fallback(normalizedContent, fallbackTitle);
         }
+    }
+
+    private boolean isSummaryFallbackCoolingDown() {
+        return System.currentTimeMillis() < summaryFallbackUntilEpochMs.get();
+    }
+
+    private void markSummaryFallbackCooldown(Exception exception) {
+        Throwable rootCause = unwrap(exception);
+        if (!(rootCause instanceof TimeoutException)) {
+            return;
+        }
+        long until = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(summaryFailureCooldownSeconds);
+        summaryFallbackUntilEpochMs.set(until);
+    }
+
+    private Throwable unwrap(Throwable throwable) {
+        Throwable current = throwable;
+        while ((current instanceof CompletionException || current instanceof ExecutionException)
+                && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    @PreDestroy
+    void shutdownSummaryExecutor() {
+        summaryExecutor.shutdownNow();
     }
 
     private SummaryPayload fallback(String content, String fallbackTitle) {

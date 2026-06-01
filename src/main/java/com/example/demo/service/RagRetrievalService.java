@@ -38,6 +38,9 @@ import java.util.stream.Collectors;
 @Slf4j
 public class RagRetrievalService {
 
+    private static final int CONTEXT_NEIGHBOR_BEFORE = 1;
+    private static final int CONTEXT_NEIGHBOR_AFTER = 2;
+
     private final VectorStore leafVectorStore;
     private final VectorStore summaryVectorStore;
     private final RerankModel rerankModel;
@@ -125,19 +128,22 @@ public class RagRetrievalService {
                 return primaryResult;
             }
 
-            List<Document> mergedCandidates = collectFlatCandidates(normalizedQueries, userId);
+            List<Document> mergedCandidates = collectHybridCandidates(normalizedQueries, userId);
             if (mergedCandidates.isEmpty()) {
                 long duration = System.currentTimeMillis() - startTime;
                 log.info("多路召回未召回任何候选文档, queries={}, 耗时={}ms", normalizedQueries.size(), duration);
+                if (!primaryResult.getDocuments().isEmpty()) {
+                    return primaryResult;
+                }
                 return RetrievalResult.empty(duration);
             }
 
             ScoredDocumentsResult rerankResult = rerank(normalizedQueries.get(0), mergedCandidates, topK);
             boolean hit = rerankResult.topScore != null && rerankResult.topScore >= hitThreshold;
-            String knowledgeText = rerankResult.documents.stream()
-                    .map(Document::getText)
-                    .collect(Collectors.joining("\n\n---\n\n"));
-
+            if (!hit && primaryResult.isHit()) {
+                log.info("多路召回结果未达命中阈值，回退到主查询检索结果: primaryQuery={}", normalizedQueries.get(0));
+                return primaryResult;
+            }
             long duration = System.currentTimeMillis() - startTime;
             log.info("多路召回完成: queries={}, mergedCandidates={}, final={}, topScore={}, 耗时={}ms",
                     normalizedQueries.size(),
@@ -148,6 +154,7 @@ public class RagRetrievalService {
 
             List<String> leafIds = extractIds(rerankResult.documents);
             List<RagUnit> leafUnits = selectUnitsByIds(leafIds);
+            String knowledgeText = buildExpandedKnowledgeText(rerankResult.documents, leafUnits);
             Map<String, RagUnit> leafUnitMap = toUnitMap(leafUnits);
             List<HierarchyHit> hierarchyHits = new ArrayList<>();
             for (Document doc : rerankResult.documents) {
@@ -196,9 +203,8 @@ public class RagRetrievalService {
                     && docs.get(0).getScore() != null
                     && docs.get(0).getScore() > 0.7;
 
-            String knowledgeText = docs.stream()
-                    .map(Document::getText)
-                    .collect(Collectors.joining("\n\n---\n\n"));
+            List<RagUnit> leafUnits = selectUnitsByIds(extractIds(docs));
+            String knowledgeText = buildExpandedKnowledgeText(docs, leafUnits);
 
             long duration = System.currentTimeMillis() - startTime;
 
@@ -298,9 +304,7 @@ public class RagRetrievalService {
         );
 
         long duration = System.currentTimeMillis() - startTime;
-        String knowledgeText = leafRerank.documents.stream()
-                .map(Document::getText)
-                .collect(Collectors.joining("\n\n---\n\n"));
+        String knowledgeText = buildExpandedKnowledgeText(leafRerank.documents, finalLeafUnits);
 
         log.info("层次检索完成: summaryCandidates={}, expandedSections={}, finalLeaves={}, topScore={}, 耗时={}ms",
                 summaryCandidates.size(),
@@ -344,10 +348,6 @@ public class RagRetrievalService {
 
         ScoredDocumentsResult rerankResult = rerank(query, candidates, topK);
         boolean hit = rerankResult.topScore != null && rerankResult.topScore >= hitThreshold;
-        String knowledgeText = rerankResult.documents.stream()
-                .map(Document::getText)
-                .collect(Collectors.joining("\n\n---\n\n"));
-
         long duration = System.currentTimeMillis() - startTime;
         log.info("平铺检索完成: hit={}, fallback={}, candidates={}, final={}, topScore={}, 耗时={}ms",
                 hit,
@@ -359,6 +359,7 @@ public class RagRetrievalService {
 
         List<String> leafIds = extractIds(rerankResult.documents);
         List<RagUnit> leafUnits = selectUnitsByIds(leafIds);
+        String knowledgeText = buildExpandedKnowledgeText(rerankResult.documents, leafUnits);
         Map<String, RagUnit> leafUnitMap = toUnitMap(leafUnits);
         List<HierarchyHit> hierarchyHits = new ArrayList<>();
         for (Document doc : rerankResult.documents) {
@@ -409,6 +410,116 @@ public class RagRetrievalService {
         return new ArrayList<>(deduped.values());
     }
 
+    private String buildExpandedKnowledgeText(List<Document> rankedDocs, List<RagUnit> matchedLeafUnits) {
+        Map<String, RagUnit> matchedLeafMap = toUnitMap(matchedLeafUnits);
+        Map<String, RagUnit> expandedUnits = new LinkedHashMap<>();
+
+        for (Document doc : rankedDocs) {
+            RagUnit matchedLeaf = matchedLeafMap.get(doc.getId());
+            if (matchedLeaf == null) {
+                continue;
+            }
+            List<RagUnit> contextLeaves = selectNeighborLeaves(matchedLeaf);
+            if (contextLeaves.isEmpty()) {
+                expandedUnits.putIfAbsent(matchedLeaf.getId(), matchedLeaf);
+                continue;
+            }
+            for (RagUnit contextLeaf : contextLeaves) {
+                if (contextLeaf.getId() != null) {
+                    expandedUnits.putIfAbsent(contextLeaf.getId(), contextLeaf);
+                }
+            }
+        }
+
+        if (expandedUnits.isEmpty()) {
+            return rankedDocs.stream()
+                    .map(Document::getText)
+                    .collect(Collectors.joining("\n\n---\n\n"));
+        }
+
+        Map<String, RagUnit> parentSections = selectParentSections(expandedUnits.values());
+        return expandedUnits.values().stream()
+                .map(unit -> formatKnowledgeUnit(unit, findParentSection(unit, parentSections)))
+                .collect(Collectors.joining("\n\n---\n\n"));
+    }
+
+    private RagUnit findParentSection(RagUnit unit, Map<String, RagUnit> parentSections) {
+        if (unit.getParentId() == null || unit.getParentId().isBlank()) {
+            return null;
+        }
+        return parentSections.get(unit.getParentId());
+    }
+
+    private List<RagUnit> selectNeighborLeaves(RagUnit leaf) {
+        if (leaf.getSourceId() == null || leaf.getChunkIndex() == null) {
+            return List.of(leaf);
+        }
+
+        int start = Math.max(0, leaf.getChunkIndex() - CONTEXT_NEIGHBOR_BEFORE);
+        int end = leaf.getChunkIndex() + CONTEXT_NEIGHBOR_AFTER;
+        QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
+        wrapper.eq("source_id", leaf.getSourceId())
+                .eq(leaf.getUserId() != null && !leaf.getUserId().isBlank(), "user_id", leaf.getUserId())
+                .and(group -> group
+                        .eq("node_type", RagNodeType.LEAF.name())
+                        .or()
+                        .isNull("node_type"))
+                .between("chunk_index", start, end)
+                .orderByAsc("chunk_index");
+
+        List<RagUnit> neighbors = ragUnitMapper.selectList(wrapper);
+        if (neighbors == null || neighbors.isEmpty()) {
+            return List.of(leaf);
+        }
+        return neighbors;
+    }
+
+    private Map<String, RagUnit> selectParentSections(Collection<RagUnit> units) {
+        Set<String> parentIds = new LinkedHashSet<>();
+        for (RagUnit unit : units) {
+            if (unit.getParentId() != null && !unit.getParentId().isBlank()) {
+                parentIds.add(unit.getParentId());
+            }
+        }
+        if (parentIds.isEmpty()) {
+            return Map.of();
+        }
+        return toUnitMap(selectUnitsByIds(new ArrayList<>(parentIds)));
+    }
+
+    private String formatKnowledgeUnit(RagUnit unit, RagUnit parentSection) {
+        StringBuilder builder = new StringBuilder();
+        if (unit.getFilename() != null && !unit.getFilename().isBlank()) {
+            builder.append("【文档】").append(unit.getFilename()).append('\n');
+        }
+        if (parentSection != null && parentSection.getTitle() != null && !parentSection.getTitle().isBlank()) {
+            builder.append("【章节】").append(parentSection.getTitle()).append('\n');
+        }
+        if (unit.getTitle() != null && !unit.getTitle().isBlank()) {
+            builder.append("【标题】").append(unit.getTitle()).append('\n');
+        }
+        if (unit.getChunkIndex() != null) {
+            builder.append("【分段】").append(unit.getChunkIndex() + 1).append('\n');
+        }
+        if (unit.getContent() != null) {
+            builder.append(unit.getContent());
+        }
+        return builder.toString().trim();
+    }
+
+    private List<Document> collectHybridCandidates(List<String> queries, String userId) {
+        List<Document> vectorCandidates = collectFlatCandidates(queries, userId);
+        if (!vectorCandidates.isEmpty()) {
+            return vectorCandidates;
+        }
+
+        List<Document> keywordCandidates = collectKeywordCandidates(queries, userId);
+        if (!keywordCandidates.isEmpty()) {
+            log.info("向量召回为空，已回退到关键词召回: queries={}, candidates={}", queries.size(), keywordCandidates.size());
+        }
+        return keywordCandidates;
+    }
+
     private List<Document> searchLeafCandidates(String query, String userId) {
         SearchRequest searchRequest = SearchRequest.builder()
                 .query(query)
@@ -417,6 +528,45 @@ public class RagRetrievalService {
                 .filterExpression(buildUserFilterExpression(userId))
                 .build();
         return leafVectorStore.similaritySearch(searchRequest);
+    }
+
+    private List<Document> collectKeywordCandidates(List<String> queries, String userId) {
+        Map<String, Document> deduped = new LinkedHashMap<>();
+        for (String query : queries) {
+            String keyword = normalizeKeywordQuery(query);
+            if (keyword.isBlank()) {
+                continue;
+            }
+            for (RagUnit unit : searchLeafUnitsByKeyword(keyword, userId)) {
+                if (unit.getId() == null || unit.getContent() == null || unit.getContent().isBlank()) {
+                    continue;
+                }
+                deduped.putIfAbsent(unit.getId(), new Document(
+                        unit.getId(),
+                        unit.getContent(),
+                        ragUnitService.buildVectorMetadata(unit, unit.getFilename())
+                ));
+            }
+        }
+        return new ArrayList<>(deduped.values());
+    }
+
+    private List<RagUnit> searchLeafUnitsByKeyword(String keyword, String userId) {
+        QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
+        wrapper.and(group -> group
+                        .eq("node_type", RagNodeType.LEAF.name())
+                        .or()
+                        .isNull("node_type"))
+                .eq(userId != null && !userId.isBlank(), "user_id", userId)
+                .and(group -> group
+                        .like("title", keyword)
+                        .or()
+                        .like("content", keyword)
+                        .or()
+                        .like("filename", keyword))
+                .orderByAsc("chunk_index")
+                .last("LIMIT " + Math.max(candidateTopK, 1));
+        return ragUnitMapper.selectList(wrapper);
     }
 
     private List<String> normalizeQueries(String primaryQuery, List<String> recallQueries) {
@@ -432,6 +582,18 @@ public class RagRetrievalService {
                     .forEach(normalized::add);
         }
         return new ArrayList<>(normalized);
+    }
+
+    private String normalizeKeywordQuery(String query) {
+        if (query == null) {
+            return "";
+        }
+        String normalized = query.trim();
+        normalized = normalized.replaceAll("^(请问|请介绍一下|请介绍|介绍一下|请解释一下|请解释|解释一下|请说明一下|请说明|说明一下|什么是)", "");
+        normalized = normalized.replaceAll("(是什么|是啥|什么意思|含义是什么|定义是什么|的定义|的含义|吗|呢)$", "");
+        normalized = normalized.replaceAll("[？?。！!，,；;：:\"“”‘’（）()【】\\[\\]]", " ");
+        normalized = normalized.replaceAll("\\s+", " ").trim();
+        return normalized;
     }
 
     private List<RagUnit> expandSectionCandidates(List<Document> summaryCandidates, Map<String, RagUnit> summaryUnitMap) {
@@ -610,6 +772,19 @@ public class RagRetrievalService {
         if (userId == null || userId.isBlank()) {
             return "";
         }
-        return "user_id == '" + userId.replace("'", "\\'") + "'";
+        return "user_id == '" + escapeRedisTagValue(userId) + "'";
+    }
+
+    private String escapeRedisTagValue(String rawValue) {
+        StringBuilder escaped = new StringBuilder(rawValue.length());
+        for (int i = 0; i < rawValue.length(); i++) {
+            char current = rawValue.charAt(i);
+            if (Character.isLetterOrDigit(current) || current == '_') {
+                escaped.append(current);
+                continue;
+            }
+            escaped.append('\\').append(current);
+        }
+        return escaped.toString();
     }
 }

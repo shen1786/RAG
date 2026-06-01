@@ -1,21 +1,21 @@
 <template>
-  <div class="h-full flex overflow-hidden bg-background">
+  <div class="h-full min-h-0 flex overflow-hidden bg-background">
     <!-- Secondary Panel: Conversations History Sidebar -->
-    <aside class="w-64 bg-surface-container-lowest border-r border-outline-variant h-full flex flex-col p-md flex-shrink-0 hidden lg:flex">
+    <aside class="w-64 bg-surface-container-lowest border-r border-outline-variant h-full flex flex-col p-md flex-shrink-0 hidden lg:flex min-h-0">
       <div class="font-label-md text-label-md text-outline uppercase tracking-wider mb-sm px-2">最近会话</div>
-      <div class="flex-1 overflow-y-auto scrollbar-hide flex flex-col gap-xs pr-1">
+      <div class="flex-1 overflow-y-auto scrollbar-hide flex flex-col gap-xs pr-1 min-h-0">
         <div v-if="sessionsList.length === 0" class="text-center py-lg text-outline-variant text-body-sm">
           暂无历史会话
         </div>
-        <div 
-          v-for="session in sessionsList" 
+        <div
+          v-for="session in sessionsList"
           :key="session"
           @click="selectSession(session)"
           class="flex items-center justify-between py-2 px-3 rounded-md cursor-pointer transition-colors group text-left"
           :class="[currentSessionId === session ? 'bg-surface-container text-primary font-semibold' : 'hover:bg-surface-container-low text-on-surface-variant']"
         >
           <span class="font-body-sm text-body-sm truncate flex-1 pr-2">{{ formatSessionTitle(session) }}</span>
-          <button 
+          <button
             @click.stop="confirmDeleteSession(session)"
             class="text-outline-variant hover:text-error opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer flex items-center justify-center p-xs rounded hover:bg-error-container"
             title="删除会话"
@@ -27,11 +27,11 @@
     </aside>
 
     <!-- Main Chat Feed Area -->
-    <div class="flex-1 flex flex-col min-w-0 bg-background relative h-full">
+    <div class="flex-1 flex flex-col min-w-0 min-h-0 bg-background h-full">
       <!-- Chat Message Window -->
-      <div 
+      <div
         ref="messageContainer"
-        class="flex-grow overflow-y-auto p-md md:p-lg flex flex-col gap-lg pb-36 scrollbar-hide"
+        class="flex-1 min-h-0 overflow-y-auto p-md md:p-lg flex flex-col gap-lg scrollbar-hide"
       >
         <div v-if="chatMessages.length === 0" class="flex flex-col items-center justify-center h-full max-w-lg mx-auto text-center space-y-md my-auto opacity-75">
           <span class="material-symbols-outlined text-primary text-[64px]" style="font-variation-settings: 'FILL' 1;">chat_bubble_outline</span>
@@ -39,36 +39,47 @@
           <p class="font-body-sm text-body-sm text-on-surface-variant">
             基于大语言模型与多路径知识库召回的 RAG 问答平台。您可以输入任何关于知识库文档的问题。
           </p>
+          <p v-if="knowledgeBanner" class="max-w-md rounded-lg border px-md py-sm font-body-sm text-body-sm" :class="knowledgeBanner.kind === 'warning' ? 'border-secondary text-secondary bg-secondary-fixed/20' : 'border-error text-error bg-error-container'">
+            {{ knowledgeBanner.text }}
+          </p>
         </div>
 
-        <div 
-          v-for="(msg, index) in chatMessages" 
+        <div
+          v-if="knowledgeBanner && chatMessages.length > 0"
+          class="max-w-4xl mx-auto w-full rounded-lg border px-md py-sm font-body-sm text-body-sm"
+          :class="knowledgeBanner.kind === 'warning' ? 'border-secondary text-secondary bg-secondary-fixed/20' : 'border-error text-error bg-error-container'"
+        >
+          {{ knowledgeBanner.text }}
+        </div>
+
+        <div
+          v-for="(msg, index) in chatMessages"
           :key="index"
           class="flex w-full"
           :class="[msg.role === 'user' ? 'justify-end' : 'justify-start']"
         >
-          <div 
+          <div
             class="max-w-[85%] md:max-w-[75%] flex gap-sm"
             :class="[msg.role === 'user' ? 'flex-row-reverse' : 'flex-row']"
           >
             <!-- Avatar -->
-            <div 
+            <div
               class="w-8 h-8 rounded-full border border-outline-variant flex-shrink-0 flex items-center justify-center font-bold text-xs"
               :class="[msg.role === 'user' ? 'bg-primary-container text-on-primary' : 'bg-surface-container-lowest text-primary']"
             >
               {{ msg.role === 'user' ? authStore.username[0].toUpperCase() : 'AI' }}
             </div>
-            
+
             <!-- Message Bubble -->
-            <div 
-              class="p-md rounded-lg shadow-sm font-body-md text-body-md whitespace-pre-wrap leading-relaxed"
+            <div
+              class="p-md rounded-lg shadow-sm font-body-md text-body-md leading-relaxed break-words"
               :class="[
-                msg.role === 'user' 
-                  ? 'bg-primary-container text-on-primary rounded-tr-none' 
+                msg.role === 'user'
+                  ? 'bg-primary-container text-on-primary rounded-tr-none'
                   : 'bg-surface-container-lowest border border-outline-variant border-l-4 border-l-primary-container text-on-surface rounded-tl-none'
               ]"
             >
-              <div v-html="formatMessageContent(msg.content)"></div>
+              <div class="markdown-content" v-html="formatMessageContent(msg.content, msg.role, index)"></div>
             </div>
           </div>
         </div>
@@ -92,76 +103,78 @@
       </div>
 
       <!-- Input composer container -->
-      <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background via-background to-transparent pt-lg pb-md px-md md:px-lg">
-        <div class="max-w-4xl mx-auto bg-surface-container-lowest border border-outline-variant rounded-xl shadow-md p-2 flex flex-col transition-all focus-within:border-primary focus-within:shadow-lg">
-          <textarea 
-            v-model="inputMessage" 
-            @keydown.enter.prevent="sendMessage"
-            class="w-full bg-transparent border-none focus:ring-0 resize-none font-body-md text-body-md p-3 text-on-surface placeholder:text-outline h-20 max-h-48 outline-none" 
-            placeholder="请输入您的问题，按回车发送..."
-            :disabled="streaming"
-          ></textarea>
-          <div class="flex items-center justify-between mt-2 px-2 pb-1">
-            <div class="flex items-center gap-sm">
-              <!-- Mode Selection (Optional UI enhancement) -->
-              <span class="font-label-md text-label-md text-outline bg-surface-container px-2 py-1 rounded-md flex items-center gap-xs">
-                <span class="material-symbols-outlined text-[14px]">source</span>
-                混合检索召唤 Rerank 激活
-              </span>
-            </div>
-            <div class="flex items-center gap-xs">
-              <!-- Recording status text indicator -->
-              <span v-if="recording" class="text-error font-body-sm animate-pulse mr-xs flex items-center gap-2">
-                <span class="w-2 h-2 bg-error rounded-full animate-ping"></span>
-                正在录音...
-              </span>
-              <!-- Mic Button -->
-              <button 
-                @click="toggleRecording"
-                :disabled="streaming"
-                class="p-2 rounded-lg hover:bg-surface-container-high transition-colors flex items-center justify-center cursor-pointer shadow-sm"
-                :class="[recording ? 'bg-error-container text-error hover:bg-error-container-high' : 'bg-surface-container text-primary']"
-                :title="recording ? '结束录音并识别' : '语音对话'"
-              >
-                <span class="material-symbols-outlined text-[20px]">
-                  {{ recording ? 'mic_off' : 'mic' }}
+      <div class="flex-shrink-0 bg-gradient-to-t from-background via-background to-transparent pt-md pb-md px-md md:px-lg border-t border-outline-variant/60">
+        <div class="max-w-4xl mx-auto">
+          <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-md p-2 flex flex-col transition-all focus-within:border-primary focus-within:shadow-lg">
+            <textarea
+              v-model="inputMessage"
+              @keydown.enter.prevent="sendMessage"
+              class="w-full bg-transparent border-none focus:ring-0 resize-none font-body-md text-body-md p-3 text-on-surface placeholder:text-outline min-h-[5rem] max-h-48 outline-none"
+              placeholder="请输入您的问题，按回车发送..."
+              :disabled="streaming"
+            ></textarea>
+            <div class="flex flex-col gap-sm sm:flex-row sm:items-center sm:justify-between mt-2 px-2 pb-1">
+              <div class="flex items-center gap-sm min-w-0">
+                <!-- Mode Selection (Optional UI enhancement) -->
+                <span class="font-label-md text-label-md text-outline bg-surface-container px-2 py-1 rounded-md flex items-center gap-xs max-w-full">
+                  <span class="material-symbols-outlined text-[14px] flex-shrink-0">source</span>
+                  <span class="truncate">混合检索召唤 Rerank 激活</span>
                 </span>
-              </button>
-              <button 
-                @click="sendMessage"
-                :disabled="streaming || !inputMessage.trim()"
-                class="bg-primary-container text-on-primary p-2 rounded-lg hover:opacity-90 active:opacity-100 transition-opacity flex items-center justify-center disabled:opacity-50 shadow-sm cursor-pointer" 
-                title="发送消息"
-              >
-                <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">send</span>
-              </button>
+              </div>
+              <div class="flex items-center gap-xs self-end sm:self-auto">
+                <!-- Recording status text indicator -->
+                <span v-if="recording" class="text-error font-body-sm animate-pulse mr-xs flex items-center gap-2">
+                  <span class="w-2 h-2 bg-error rounded-full animate-ping"></span>
+                  正在录音...
+                </span>
+                <!-- Mic Button -->
+                <button
+                  @click="toggleRecording"
+                  :disabled="streaming"
+                  class="p-2 rounded-lg hover:bg-surface-container-high transition-colors flex items-center justify-center cursor-pointer shadow-sm"
+                  :class="[recording ? 'bg-error-container text-error hover:bg-error-container-high' : 'bg-surface-container text-primary']"
+                  :title="recording ? '结束录音并识别' : '语音对话'"
+                >
+                  <span class="material-symbols-outlined text-[20px]">
+                    {{ recording ? 'mic_off' : 'mic' }}
+                  </span>
+                </button>
+                <button
+                  @click="sendMessage"
+                  :disabled="streaming || !inputMessage.trim()"
+                  class="bg-primary-container text-on-primary p-2 rounded-lg hover:opacity-90 active:opacity-100 transition-opacity flex items-center justify-center disabled:opacity-50 shadow-sm cursor-pointer"
+                  title="发送消息"
+                >
+                  <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">send</span>
+                </button>
+              </div>
             </div>
           </div>
+          <p class="text-center font-label-md text-label-md text-outline mt-sm px-sm">大模型可能犯错。重要信息请通过引用来源进行复核。</p>
         </div>
-        <p class="text-center font-label-md text-label-md text-outline mt-sm">大模型可能犯错。重要信息请通过引用来源进行复核。</p>
       </div>
     </div>
 
     <!-- Right Panel: Citations / References Panel -->
-    <aside 
+    <aside
       v-if="citationsList.length > 0"
-      class="hidden xl:flex flex-col w-80 bg-surface-container-lowest border-l border-outline-variant flex-shrink-0 h-full overflow-hidden shadow-sm"
+      class="hidden xl:flex flex-col w-80 bg-surface-container-lowest border-l border-outline-variant flex-shrink-0 h-full overflow-hidden shadow-sm min-h-0"
     >
       <div class="p-md border-b border-outline-variant flex items-center justify-between bg-surface-bright">
         <h3 class="font-headline-sm text-[18px] leading-[24px] font-semibold text-on-surface flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">source</span>
           知识来源 ({{ citationsList.length }})
         </h3>
-        <button 
+        <button
           @click="clearCitations"
           class="text-on-surface-variant hover:bg-surface-container-high p-1 rounded-md transition-colors cursor-pointer"
         >
           <span class="material-symbols-outlined text-[20px]">close</span>
         </button>
       </div>
-      <div class="flex-1 overflow-y-auto p-md flex flex-col gap-md bg-background/50">
-        <div 
-          v-for="(cite, i) in citationsList" 
+      <div class="flex-1 min-h-0 overflow-y-auto p-md flex flex-col gap-md bg-background/50">
+        <div
+          v-for="(cite, i) in citationsList"
           :key="i"
           @click="openPdfFromCitation(cite)"
           class="bg-surface-container-lowest border border-outline-variant rounded-lg p-md shadow-sm hover:border-primary transition-all duration-200 cursor-pointer"
@@ -194,10 +207,10 @@
         </div>
       </div>
     </aside>
-    
+
     <!-- PDF Preview Modal -->
-    <div 
-      v-if="previewPdfUrl" 
+    <div
+      v-if="previewPdfUrl"
       class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-md"
       @click="previewPdfUrl = ''"
     >
@@ -207,7 +220,7 @@
             <span class="material-symbols-outlined text-primary">picture_as_pdf</span>
             文档在线预览: {{ previewPdfName }}
           </h3>
-          <button 
+          <button
             @click="previewPdfUrl = ''"
             class="text-on-surface-variant hover:bg-surface-container-high p-1 rounded-md transition-colors cursor-pointer flex-shrink-0"
           >
@@ -215,8 +228,8 @@
           </button>
         </header>
         <main class="flex-1 bg-surface-container-low p-sm flex items-center justify-center">
-          <iframe 
-            :src="previewPdfUrl" 
+          <iframe
+            :src="previewPdfUrl"
             class="w-full h-full border-none rounded-lg bg-white"
           ></iframe>
         </main>
@@ -227,8 +240,10 @@
 
 <script setup>
 import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import MarkdownIt from 'markdown-it'
+import DOMPurify from 'dompurify'
 import { useAuthStore } from '../store/auth'
-import { ai } from '../api'
+import { ai, documents } from '../api'
 
 const props = defineProps({
   newSessionTrigger: {
@@ -249,6 +264,9 @@ const inputMessage = ref('')
 const streaming = ref(false)
 const messageContainer = ref(null)
 const hasNewTurns = ref(false)
+const knowledgeBanner = ref(null)
+const documentStatusMap = ref(new Map())
+let knowledgePollTimer = null
 
 const recording = ref(false)
 let audioContext = null
@@ -422,11 +440,18 @@ const handleBeforeUnload = () => {
 
 onMounted(() => {
   loadSessions()
+  refreshKnowledgeStatus()
+  knowledgePollTimer = setInterval(() => {
+    refreshKnowledgeStatus()
+  }, 4000)
   window.addEventListener('beforeunload', handleBeforeUnload)
 })
 
 onUnmounted(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  if (knowledgePollTimer) {
+    clearInterval(knowledgePollTimer)
+  }
   if (currentSessionId.value && hasNewTurns.value) {
     ai.extractProfile(currentSessionId.value, authStore.userId).catch(() => {})
   }
@@ -515,6 +540,8 @@ const sendMessage = async () => {
   if (!inputMessage.value.trim() || streaming.value) return
 
   const userQuery = inputMessage.value.trim()
+  citationsList.value = []
+  updateKnowledgeBanner()
   chatMessages.value.push({ role: 'user', content: userQuery })
   inputMessage.value = ''
   scrollToBottom()
@@ -618,6 +645,7 @@ const handleSseMessage = (message, aiMessageIndex) => {
   if (parsed.eventType === 'citations') {
     try {
       citationsList.value = parsed.dataContent ? JSON.parse(parsed.dataContent) : []
+      updateKnowledgeBanner()
     } catch (e) {
       console.error('解析引文失败:', e)
     }
@@ -646,19 +674,98 @@ const formatSessionTitle = (sessionId) => {
   return `会话: ${sessionId}`
 }
 
-const formatMessageContent = (content) => {
-  if (!content) return ''
-  // Render bold markdown
-  let formatted = content
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/`([^`]+)`/g, '<code class="bg-surface-container text-primary px-1 rounded font-mono text-sm">$1</code>')
-  
-  // Render source tag pills
-  formatted = formatted.replace(/(Page \d+|Section \d+|Chapter \d+)/g, 
-    '<span class="inline-flex items-center gap-xs bg-surface-container text-primary px-2 py-0.5 rounded-full font-label-md text-label-md ml-1 cursor-pointer hover:opacity-80">$1</span>')
+const markdownRenderer = new MarkdownIt({
+  html: false,
+  breaks: true,
+  linkify: true
+})
 
-  return formatted
+const defaultLinkOpenRenderer = markdownRenderer.renderer.rules.link_open || ((tokens, idx, options, env, self) => {
+  return self.renderToken(tokens, idx, options)
+})
+
+markdownRenderer.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  tokens[idx].attrSet('target', '_blank')
+  tokens[idx].attrSet('rel', 'noopener noreferrer')
+  return defaultLinkOpenRenderer(tokens, idx, options, env, self)
+}
+
+const sourcePillPattern = /(Page \d+|Section \d+|Chapter \d+|第\s*\d+\s*页|第\s*\d+\s*章|章节\s*\d+|分段\s*\d+)/g
+const sourcePillDetectionPattern = /(Page \d+|Section \d+|Chapter \d+|第\s*\d+\s*页|第\s*\d+\s*章|章节\s*\d+|分段\s*\d+)/
+
+const applySourcePills = (html) => {
+  if (!html || typeof DOMParser === 'undefined' || typeof NodeFilter === 'undefined') return html || ''
+
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html')
+  const root = doc.body.firstElementChild
+  if (!root) return html
+
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const textNodes = []
+
+  while (walker.nextNode()) {
+    const currentNode = walker.currentNode
+    const parentTag = currentNode.parentElement?.tagName
+    if (!currentNode.textContent || !sourcePillDetectionPattern.test(currentNode.textContent)) {
+      continue
+    }
+    if (parentTag && ['CODE', 'PRE', 'A', 'SCRIPT', 'STYLE'].includes(parentTag)) {
+      continue
+    }
+    textNodes.push(currentNode)
+  }
+
+  textNodes.forEach((node) => {
+    const text = node.textContent || ''
+    const fragment = doc.createDocumentFragment()
+    let lastIndex = 0
+
+    text.replace(sourcePillPattern, (match, _group, offset) => {
+      if (offset > lastIndex) {
+        fragment.appendChild(doc.createTextNode(text.slice(lastIndex, offset)))
+      }
+
+      const pill = doc.createElement('span')
+      pill.className = 'source-pill'
+      pill.textContent = match
+      fragment.appendChild(pill)
+      lastIndex = offset + match.length
+      return match
+    })
+
+    if (lastIndex < text.length) {
+      fragment.appendChild(doc.createTextNode(text.slice(lastIndex)))
+    }
+
+    node.parentNode?.replaceChild(fragment, node)
+  })
+
+  return root.innerHTML
+}
+
+const sanitizeHtml = (html) => {
+  return DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    ALLOWED_ATTR: ['class', 'href', 'target', 'rel']
+  })
+}
+
+const renderMarkdownToHtml = (content) => {
+  if (!content) return ''
+
+  const rendered = markdownRenderer.render(content)
+  const enhanced = applySourcePills(rendered)
+  return sanitizeHtml(enhanced)
+}
+
+const formatMessageContent = (content, role, index) => {
+  if (!content) return ''
+
+  if (role === 'ai' && streaming.value && index === chatMessages.value.length - 1) {
+    return sanitizeHtml(content.replace(/\n/g, '<br />'))
+  }
+
+  return renderMarkdownToHtml(content)
 }
 
 const scrollToBottom = () => {
@@ -667,5 +774,77 @@ const scrollToBottom = () => {
       messageContainer.value.scrollTop = messageContainer.value.scrollHeight
     }
   })
+}
+
+const isProcessingStatus = (status) => {
+  return ['UPLOADING', 'UPLOAD_SUCCESS', 'PROCESSING', 'CHUNKING', 'VECTORIZING', 'REINDEXING'].includes(status)
+}
+
+const updateKnowledgeBanner = () => {
+  const statuses = Array.from(documentStatusMap.value.values())
+  const processingCount = statuses.filter(isProcessingStatus).length
+  const successCount = statuses.filter(status => status === 'SUCCESS').length
+  const failedCount = statuses.filter(status => status === 'FAILED').length
+
+  if (processingCount > 0) {
+    knowledgeBanner.value = {
+      kind: 'warning',
+      text: `当前有 ${processingCount} 份文档仍在解析或向量化中。上传成功不代表已经可检索，请等待文档状态变为“成功”后再提问。`
+    }
+    return
+  }
+
+  if (successCount === 0 && failedCount > 0) {
+    knowledgeBanner.value = {
+      kind: 'error',
+      text: '当前知识库里还没有可检索的成功文档，已有文档处理失败。请到“文档库管理”查看失败原因后重试上传。'
+    }
+    return
+  }
+
+  if (successCount === 0) {
+    knowledgeBanner.value = {
+      kind: 'warning',
+      text: '当前还没有可检索的成功文档。本次回答可能不会引用知识库内容。'
+    }
+    return
+  }
+
+  if (chatMessages.value.length > 0 && citationsList.value.length === 0) {
+    knowledgeBanner.value = {
+      kind: 'warning',
+      text: '本次回答未命中知识库引用，回答可能来自模型通用能力而不是上传文档。'
+    }
+    return
+  }
+
+  knowledgeBanner.value = null
+}
+
+const refreshKnowledgeStatus = async () => {
+  try {
+    const res = await documents.list({
+      page: 1,
+      pageSize: 100,
+      userId: authStore.userId,
+      sortBy: 'createdAt',
+      sortOrder: 'DESC'
+    })
+
+    if (res.code !== 200) {
+      return
+    }
+
+    const nextMap = new Map()
+    for (const doc of (res.data.records || [])) {
+      if (doc.fileHash) {
+        nextMap.set(doc.fileHash, doc.status)
+      }
+    }
+    documentStatusMap.value = nextMap
+    updateKnowledgeBanner()
+  } catch (err) {
+    console.error('获取知识库状态失败:', err)
+  }
 }
 </script>

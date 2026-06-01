@@ -56,7 +56,7 @@ public class PasswordRecoveryService {
         }
 
         String resetCode = generateResetCode();
-        log.info("[Password Recovery Simulation] Generated reset code for username '{}': {}", normalizedUsername, resetCode);
+        log.info("[密码重置模拟] 已为用户名 '{}' 生成重置验证码: {}", normalizedUsername, resetCode);
         
         // Dispatch to EmailService (which attempts real mail sending, and falls back to simulated email files)
         String targetEmail = normalizedUsername.contains("@") ? normalizedUsername : normalizedUsername + "@example.com";

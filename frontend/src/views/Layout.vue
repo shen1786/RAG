@@ -1,5 +1,5 @@
 <template>
-  <div class="h-screen flex overflow-hidden font-body-md bg-background text-on-surface">
+  <div class="h-screen min-h-0 flex overflow-hidden font-body-md bg-background text-on-surface">
     <!-- Mobile Navigation Drawer Overlay -->
     <div 
       v-if="mobileMenuOpen" 

@@ -57,7 +57,7 @@ public class TextSplitterService {
      */
     public List<String> splitText(String text, int chunkSize) {
         if (text == null || text.trim().isEmpty()) {
-            log.debug("Text is empty, returning empty list");
+            log.debug("文本为空，返回空列表");
             return List.of();
         }
 
@@ -87,11 +87,11 @@ public class TextSplitterService {
                     .map(doc -> doc.getText())
                     .collect(Collectors.toList());
 
-            log.info("Text split into {} chunks (chunk size: {} tokens)", result.size(), chunkSize);
+            log.info("文本已切割为 {} 个分块 (分块大小: {} token)", result.size(), chunkSize);
             return result;
 
         } catch (Exception e) {
-            log.error("Error splitting text with TokenTextSplitter, falling back to simple split", e);
+            log.error("使用 TokenTextSplitter 切割文本失败，正在回退到简单切割方案", e);
             // 如果 TokenTextSplitter 失败，使用简单的备用方案
             return fallbackSplit(text, chunkSize);
         }
@@ -115,7 +115,7 @@ public class TextSplitterService {
             start = end;
         }
 
-        log.warn("Used fallback splitting, created {} chunks", chunks.size());
+        log.warn("已使用兜底切割方案，生成了 {} 个分块", chunks.size());
         return chunks;
     }
 

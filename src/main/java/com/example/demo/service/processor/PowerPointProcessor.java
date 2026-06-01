@@ -43,7 +43,7 @@ public class PowerPointProcessor implements MediaProcessor {
 
     @Override
     public List<RagUnit> process(InputStream input, String filename, String mimeType) {
-        log.warn("PowerPointProcessor.process called without URL");
+        log.warn("PowerPointProcessor.process 被调用，但未提供 URL");
         return new ArrayList<>();
     }
 

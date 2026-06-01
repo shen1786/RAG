@@ -1,5 +1,7 @@
 package com.example.demo.model.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,6 +17,7 @@ import java.util.Set;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class ChunkUploadStatus implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -76,6 +79,7 @@ public class ChunkUploadStatus implements Serializable {
     /**
      * 检查是否所有分片都已上传
      */
+    @JsonIgnore
     public boolean isAllChunksUploaded() {
         return uploadedChunks != null && uploadedChunks.size() == totalChunks;
     }
@@ -83,6 +87,7 @@ public class ChunkUploadStatus implements Serializable {
     /**
      * 获取上传进度百分比
      */
+    @JsonIgnore
     public double getProgress() {
         if (totalChunks == null || totalChunks == 0) {
             return 0.0;

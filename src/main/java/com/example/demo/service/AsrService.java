@@ -33,17 +33,17 @@ public class AsrService {
     public void init() {
         try {
             if (asrConfig.getAccessKeyId() != null && !asrConfig.getAccessKeyId().isEmpty()) {
-                log.info("Initializing Aliyun NLS client...");
+                log.info("正在初始化阿里云 NLS 客户端...");
                 AccessToken token = new AccessToken(asrConfig.getAccessKeyId(), asrConfig.getAccessKeySecret());
                 token.apply();
                 this.accessToken = token.getToken();
                 this.nlsClient = new NlsClient(accessToken);
-                log.info("Aliyun ASR client initialized successfully");
+                log.info("阿里云 ASR 客户端初始化成功");
             } else {
-                log.warn("Aliyun ASR credentials not configured, ASR service will be unavailable");
+                log.warn("未配置阿里云 ASR 凭证，ASR 语音识别服务将不可用");
             }
         } catch (Exception e) {
-            log.error("Failed to initialize Aliyun ASR client", e);
+            log.error("初始化阿里云 ASR 客户端失败", e);
         }
     }
 
@@ -60,7 +60,7 @@ public class AsrService {
 
     private String transcribeWithRetry(InputStream audioStream, int maxRetries) {
         if (nlsClient == null) {
-            log.warn("ASR client not initialized, returning empty transcription");
+            log.warn("ASR 客户端未初始化，返回空识别文本");
             return "";
         }
 
@@ -69,7 +69,7 @@ public class AsrService {
         try {
             audioData = audioStream.readAllBytes();
         } catch (Exception e) {
-            log.error("Failed to read audio stream", e);
+            log.error("读取音频流失败", e);
             return "";
         }
 
@@ -84,7 +84,7 @@ public class AsrService {
             }
         }
 
-        log.warn("ASR transcription failed after {} retries", maxRetries);
+        log.warn("ASR 语音识别在重试 {} 次后仍失败", maxRetries);
         return "";
     }
 
@@ -112,14 +112,14 @@ public class AsrService {
 
             transcriber.stop();
             if (!latch.await(5, TimeUnit.SECONDS)) {
-                log.warn("ASR callback timeout");
+                log.warn("ASR 回调超时");
                 return null;
             }
 
             return result.toString();
 
         } catch (Exception e) {
-            log.error("Error during ASR transcription", e);
+            log.error("ASR 语音识别过程中出现异常", e);
             return null;
         } finally {
             // 主动关闭 transcriber，避免 IDLE_TIMEOUT 错误
@@ -136,12 +136,12 @@ public class AsrService {
         return new SpeechTranscriberListener() {
             @Override
             public void onTranscriberStart(SpeechTranscriberResponse response) {
-                log.debug("ASR transcription started, task_id: {}", response.getTaskId());
+                log.debug("ASR 语音识别已开始，任务 ID: {}", response.getTaskId());
             }
 
             @Override
             public void onSentenceBegin(SpeechTranscriberResponse response) {
-                log.debug("Sentence begin, index: {}", response.getTransSentenceIndex());
+                log.debug("句子开始，序号: {}", response.getTransSentenceIndex());
             }
 
             @Override
@@ -150,7 +150,7 @@ public class AsrService {
                 if (text != null && !text.isEmpty()) {
                     result.append(text).append(" ");
                 }
-                log.debug("Sentence end: {}", text);
+                log.debug("句子结束，内容: {}", text);
             }
 
             @Override
@@ -165,7 +165,7 @@ public class AsrService {
 
             @Override
             public void onFail(SpeechTranscriberResponse response) {
-                log.error("ASR transcription failed: {}", response.getStatusText());
+                log.error("ASR 语音识别失败: {}", response.getStatusText());
                 latch.countDown();
             }
         };
