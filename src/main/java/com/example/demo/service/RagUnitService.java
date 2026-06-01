@@ -21,6 +21,9 @@ import com.example.demo.service.processor.TabularProcessor;
 import com.example.demo.service.processor.TextProcessor;
 import com.example.demo.service.processor.VideoProcessor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.ibatis.session.ExecutorType;
+import org.apache.ibatis.session.SqlSession;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.tika.Tika;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -44,8 +47,10 @@ public class RagUnitService {
     private static final int VECTOR_BATCH_SIZE = 10;
     private static final int VECTOR_ADD_MAX_RETRIES = 3;
     private static final long VECTOR_ADD_RETRY_DELAY_MS = 200L;
+    private static final int DB_BATCH_FLUSH_SIZE = 500;
 
     private final RagUnitMapper ragUnitMapper;
+    private final SqlSessionFactory sqlSessionFactory;
     private final UploadService uploadService;
     private final VectorStore leafVectorStore;
     private final VectorStore summaryVectorStore;
@@ -63,6 +68,7 @@ public class RagUnitService {
     private final Tika tika = new Tika();
 
     public RagUnitService(RagUnitMapper ragUnitMapper,
+                          SqlSessionFactory sqlSessionFactory,
                           UploadService uploadService,
                           @Qualifier("leafVectorStore") VectorStore leafVectorStore,
                           @Qualifier("summaryVectorStore") VectorStore summaryVectorStore,
@@ -78,6 +84,7 @@ public class RagUnitService {
                           DocumentDeleteService documentDeleteService,
                           HierarchicalIndexingService hierarchicalIndexingService) {
         this.ragUnitMapper = ragUnitMapper;
+        this.sqlSessionFactory = sqlSessionFactory;
         this.uploadService = uploadService;
         this.leafVectorStore = leafVectorStore;
         this.summaryVectorStore = summaryVectorStore;
@@ -94,17 +101,30 @@ public class RagUnitService {
         this.hierarchicalIndexingService = hierarchicalIndexingService;
     }
 
+    /**
+     * 使用 ExecutorType.BATCH 批量写入 rag_unit 表。
+     * <p>
+     * 注意：此方法依赖 Spring 托管的事务连接（SpringManagedTransactionFactory），
+     * 由 mybatis-plus-spring-boot3-starter 默认配置。
+     * 因此在事务模板（如 FileProcessConsumer.saveDataWithTransaction）中调用时，
+     * batch session 会自动参与外层 Spring 事务，失败时可整体回滚。
+     * createdAt / updatedAt 由 MyBatis-Plus MetaObjectHandler 在 flushStatements 时自动填充。
+     */
     public void saveBatch(List<RagUnit> units) {
         if (units == null || units.isEmpty()) {
             return;
         }
-        for (int i = 0; i < units.size(); i += 1000) {
-            int end = Math.min(i + 1000, units.size());
-            List<RagUnit> batch = units.subList(i, end);
-            for (RagUnit unit : batch) {
-                ragUnitMapper.insert(unit);
+        try (SqlSession batchSession = sqlSessionFactory.openSession(ExecutorType.BATCH)) {
+            RagUnitMapper batchMapper = batchSession.getMapper(RagUnitMapper.class);
+            for (int i = 0; i < units.size(); i++) {
+                batchMapper.insert(units.get(i));
+                if ((i + 1) % DB_BATCH_FLUSH_SIZE == 0) {
+                    batchSession.flushStatements();
+                }
             }
+            batchSession.flushStatements();
         }
+        log.debug("批量写入 MySQL 完成, 记录数: {}", units.size());
     }
 
     public FileExistenceResponse checkFileExists(String userId, String fileHash) {

@@ -10,6 +10,9 @@ import com.example.demo.service.processor.PowerPointProcessor;
 import com.example.demo.service.processor.TabularProcessor;
 import com.example.demo.service.processor.TextProcessor;
 import com.example.demo.service.processor.VideoProcessor;
+import org.apache.ibatis.session.ExecutorType;
+import org.apache.ibatis.session.SqlSession;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,6 +40,9 @@ class RagUnitServiceVectorWriteTest {
 
     @Mock
     private RagUnitMapper ragUnitMapper;
+
+    @Mock
+    private SqlSessionFactory sqlSessionFactory;
 
     @Mock
     private UploadService uploadService;
@@ -86,6 +92,7 @@ class RagUnitServiceVectorWriteTest {
     void setUp() {
         ragUnitService = new RagUnitService(
                 ragUnitMapper,
+                sqlSessionFactory,
                 uploadService,
                 leafVectorStore,
                 summaryVectorStore,
@@ -141,6 +148,41 @@ class RagUnitServiceVectorWriteTest {
         assertTrue(deletedIds.contains("summary-1"));
 
         verify(ragUnitMapper).delete(any(QueryWrapper.class));
+    }
+
+    @Test
+    void shouldUseBatchExecutorForBatchInserts() {
+        SqlSession batchSession = org.mockito.Mockito.mock(SqlSession.class);
+        RagUnitMapper batchMapper = org.mockito.Mockito.mock(RagUnitMapper.class);
+        when(sqlSessionFactory.openSession(ExecutorType.BATCH)).thenReturn(batchSession);
+        when(batchSession.getMapper(RagUnitMapper.class)).thenReturn(batchMapper);
+
+        List<RagUnit> units = List.of(unit("u-1"), unit("u-2"), unit("u-3"));
+
+        ragUnitService.saveBatch(units);
+
+        verify(batchMapper, times(3)).insert(any(RagUnit.class));
+        verify(batchSession).flushStatements();   // loop 完成后的 final flush
+        verify(batchSession).close();              // try-with-resources 关闭
+    }
+
+    @Test
+    void shouldFlushStatementsEveryBatchSize() {
+        SqlSession batchSession = org.mockito.Mockito.mock(SqlSession.class);
+        RagUnitMapper batchMapper = org.mockito.Mockito.mock(RagUnitMapper.class);
+        when(sqlSessionFactory.openSession(ExecutorType.BATCH)).thenReturn(batchSession);
+        when(batchSession.getMapper(RagUnitMapper.class)).thenReturn(batchMapper);
+
+        // DB_BATCH_FLUSH_SIZE = 500，构造 501 条，应触发 2 次 flush（500 处 + 结尾）
+        List<RagUnit> units = new ArrayList<>();
+        for (int i = 0; i < 501; i++) {
+            units.add(unit("u-" + i));
+        }
+
+        ragUnitService.saveBatch(units);
+
+        verify(batchMapper, times(501)).insert(any(RagUnit.class));
+        verify(batchSession, times(2)).flushStatements();
     }
 
     private static boolean hasSingleDocumentId(List<Document> documents, String id) {

@@ -39,7 +39,7 @@ spring:
       max-file-size: 500MB
       max-request-size: 500MB
   datasource:
-    url: jdbc:mysql://39.108.175.183:3306/rag_knowledge?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://39.108.175.183:3306/rag_knowledge?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
     username: root
     password: nm561234789
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -50,7 +50,7 @@ spring:
       keepalive-time: 30000
   data:
     redis:
-      host: 39.108.175.183
+      host: 120.24.238.51
       port: 6379
       password: nm561234789 # 璇锋浛鎹负鎮ㄥ湪鏈嶅姟鍣ㄤ笂璁剧疆鐨勫己瀵嗙爜
       database: 0
@@ -65,7 +65,7 @@ spring:
           time-between-eviction-runs: 30000ms
           min-evictable-idle-time: 60000ms
   rabbitmq:
-    host: 39.108.175.183
+    host: 120.24.238.51
     port: 5672
     username: rabbitmq
     password: nm561234789
@@ -92,7 +92,7 @@ spring:
 minio:
   endpoint: http://39.108.175.183:9000
   access-key: minioadmin
-  secret-key: ${MINIO_SECRET_KEY:}
+  secret-key: nm561234789
   bucket: rag-knowledge
 
 # 鏂囦欢涓婁紶閰嶇疆
@@ -175,7 +175,7 @@ app:
     fallback-dir: ./temp/emails
 
 mineru:
-  api-key: ${MINERU_API_KEY:}
+  api-key: ${MINERU_API_KEY:your-mineru-api-key}
   model-version: vlm
 
 
