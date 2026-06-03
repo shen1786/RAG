@@ -132,6 +132,18 @@ chunking:
     # 鏄惁淇濈暀鍒嗛殧绗︼紙娈佃惤銆佸彞瀛愯竟鐣岀瓑锛?
     keep-separator: true
 
+# 鑱婂ぉ璁板繂閰嶇疆
+chat:
+  memory:
+    # 浼犵粰妯″瀷鐨勬渶杩戞秷鎭獥鍙ｅぇ灏忥紙鏉★級
+    max-messages: 10
+    # 鎬绘秷鎭秴杩囨闃堝€兼椂瑙﹀彂鎽樿锛堝繀椤诲ぇ浜?max-messages锛?
+    summarize-threshold: 12
+    # 鍔╂墜鍥炲鎴柇闀垮害锛堟憳瑕佹椂鑺傜渷 Token锛?
+    assistant-truncate-length: 300
+    # 鎽樿鏈€澶у瓧鏁伴檺鍒?
+    summary-max-length: 500
+
 # RAG 妫€绱㈤厤缃?
 rag:
   retrieval:

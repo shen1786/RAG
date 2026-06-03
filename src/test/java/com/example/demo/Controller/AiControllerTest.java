@@ -1,8 +1,8 @@
 package com.example.demo.Controller;
 
-import com.alibaba.cloud.ai.memory.redis.RedisChatMemoryRepository;
 import com.example.demo.Config.DateTimeTools;
 import com.example.demo.Config.SessionManager;
+import com.example.demo.Config.SummaryWindowChatMemory;
 import com.example.demo.model.dto.SessionDeleteRequest;
 import com.example.demo.model.dto.HierarchyHit;
 import com.example.demo.model.dto.MultiTurnChatRequest;
@@ -56,7 +56,7 @@ class AiControllerTest {
     private DateTimeTools dateTimeTools;
 
     @Mock
-    private RedisChatMemoryRepository chatMemoryRepository;
+    private SummaryWindowChatMemory chatMemory;
 
     @Mock
     private SessionManager sessionManager;
@@ -90,7 +90,7 @@ class AiControllerTest {
                 retrievalSubQueryService,
                 userProfileService,
                 dateTimeTools,
-                chatMemoryRepository,
+                chatMemory,
                 sessionManager
         );
         AiController controller = new AiController(
@@ -121,7 +121,7 @@ class AiControllerTest {
         List<Message> history = List.of(historyMessage);
 
         when(sessionManager.getUserIdBySession("s1")).thenReturn("u1");
-        when(chatMemoryRepository.findByConversationId("s1")).thenReturn(history);
+        when(chatMemory.getFullHistory("s1")).thenReturn(history);
 
         AiService aiService = new AiService(
                 deepchatClient,
@@ -130,7 +130,7 @@ class AiControllerTest {
                 retrievalSubQueryService,
                 userProfileService,
                 dateTimeTools,
-                chatMemoryRepository,
+                chatMemory,
                 sessionManager
         );
         when(authContextService.resolveUserId("u1")).thenReturn("u1");
@@ -176,7 +176,7 @@ class AiControllerTest {
                 retrievalSubQueryService,
                 userProfileService,
                 dateTimeTools,
-                chatMemoryRepository,
+                chatMemory,
                 sessionManager
         );
 

@@ -1,8 +1,8 @@
 package com.example.demo.service;
 
-import com.alibaba.cloud.ai.memory.redis.RedisChatMemoryRepository;
 import com.example.demo.Config.DateTimeTools;
 import com.example.demo.Config.SessionManager;
+import com.example.demo.Config.SummaryWindowChatMemory;
 import com.example.demo.model.dto.ApiResponse;
 import com.example.demo.model.dto.MultiTurnChatRequest;
 import com.example.demo.model.dto.RetrievalResult;
@@ -40,7 +40,7 @@ public class AiService {
     private final RetrievalSubQueryService retrievalSubQueryService;
     private final UserProfileService userProfileService;
     private final DateTimeTools dateTimeTools;
-    private final RedisChatMemoryRepository chatMemoryRepository;
+    private final SummaryWindowChatMemory chatMemory;
     private final SessionManager sessionManager;
 
     public String chat(String msg, String userId) {
@@ -69,8 +69,11 @@ public class AiService {
 
     public ApiResponse<SessionDeleteResponse> deleteSession(SessionDeleteRequest request) {
         validateSessionOwnership(request.getUserId(), request.getSessionId());
+        // 先读完整历史供画像提炼（清除后就读不到了）
         List<Message> history = getHistoryMessages(request.getSessionId());
         submitProfileExtractionIfNeeded(request.getUserId(), history);
+        // 统一清理三层记忆（窗口+完整历史+摘要）
+        chatMemory.clear(request.getSessionId());
         sessionManager.deleteSession(request.getUserId(), request.getSessionId());
 
         SessionDeleteResponse data = new SessionDeleteResponse(
@@ -93,7 +96,24 @@ public class AiService {
 
     public ApiResponse<List<Map<String, Object>>> getHistory(String userId, String sessionId) {
         validateSessionOwnership(userId, sessionId);
-        return ApiResponse.success(toHistoryResponse(getHistoryMessages(sessionId)));
+        List<Map<String, Object>> rawHistory = chatMemory.getFullHistoryDetail(sessionId);
+        // 转换为前端期望的格式：{role: 'user'|'ai', content: '...'}
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> item : rawHistory) {
+            String type = (String) item.get("type");
+            if (type == null) continue;
+            String role = switch (type.toLowerCase()) {
+                case "user" -> "user";
+                case "assistant" -> "ai";
+                default -> null;
+            };
+            if (role == null) continue;
+            result.add(Map.of(
+                    "role", role,
+                    "content", item.getOrDefault("content", "")
+            ));
+        }
+        return ApiResponse.success(result);
     }
 
     public ApiResponse<SessionCreateResponse> createSession(SessionCreateRequest request) {
@@ -252,31 +272,12 @@ public class AiService {
     }
 
     private List<Message> getHistoryMessages(String sessionId) {
-        return chatMemoryRepository.findByConversationId(sessionId);
+        return chatMemory.getFullHistory(sessionId);
     }
 
     private void submitProfileExtractionIfNeeded(String userId, List<Message> history) {
         if (history != null && !history.isEmpty()) {
             userProfileService.extractProfileAsync(userId, history);
         }
-    }
-
-    private List<Map<String, Object>> toHistoryResponse(List<Message> history) {
-        List<Map<String, Object>> result = new ArrayList<>();
-        if (history == null) {
-            return result;
-        }
-
-        for (Message message : history) {
-            String roleValue = message.getMessageType().getValue().toLowerCase();
-            if (!roleValue.equals("user") && !roleValue.equals("assistant")) {
-                continue;
-            }
-            Map<String, Object> item = new HashMap<>();
-            item.put("role", roleValue.equals("user") ? "user" : "ai");
-            item.put("content", message.getText());
-            result.add(item);
-        }
-        return result;
     }
 }
