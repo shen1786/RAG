@@ -73,13 +73,6 @@
             <!-- 鐢?spring-ai-bom:1.0.0 绠＄悊 -->
         </dependency>
 
-        <!-- 宸ュ叿绫?-->
-        <dependency>
-            <groupId>cn.hutool</groupId>
-            <artifactId>hutool-all</artifactId>
-            <version>5.8.22</version>
-        </dependency>
-
         <!-- Redis 瀹㈡埛绔?-->
         <dependency>
             <groupId>redis.clients</groupId>
@@ -146,18 +139,6 @@
             <groupId>com.alibaba.nls</groupId>
             <artifactId>nls-sdk-transcriber</artifactId>
             <version>2.2.1</version>
-        </dependency>
-
-        <!-- JAXB API (Required for Java 11+ to support Tika/Spring) -->
-        <dependency>
-            <groupId>javax.xml.bind</groupId>
-            <artifactId>jaxb-api</artifactId>
-            <version>2.3.1</version>
-        </dependency>
-        <dependency>
-            <groupId>org.glassfish.jaxb</groupId>
-            <artifactId>jaxb-runtime</artifactId>
-            <version>2.3.1</version>
         </dependency>
 
         <!-- Commons IO -->
