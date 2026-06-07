@@ -14,6 +14,7 @@ import com.example.demo.model.dto.auth.PasswordResetCodeResponse;
 import com.example.demo.model.dto.auth.RegisterRequest;
 import com.example.demo.model.dto.auth.UserInfoResponse;
 import com.example.demo.service.AuthApplicationService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,7 +43,7 @@ public class AuthController {
      */
     @SaIgnore
     @PostMapping("/register")
-    public ApiResponse<UserInfoResponse> register(@RequestBody RegisterRequest request) {
+    public ApiResponse<UserInfoResponse> register(@Valid @RequestBody RegisterRequest request) {
         return authApplicationService.register(request);
     }
 
@@ -55,7 +56,7 @@ public class AuthController {
      */
     @SaIgnore
     @PostMapping("/login")
-    public ApiResponse<LoginResponse> login(@RequestBody LoginRequest request) {
+    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return authApplicationService.login(request);
     }
 
@@ -93,7 +94,7 @@ public class AuthController {
     @SaCheckLogin
     @SaCheckPermission("auth:password:change")
     @PostMapping("/password/change")
-    public ApiResponse<String> changePassword(@RequestBody ChangePasswordRequest request) {
+    public ApiResponse<String> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
         return authApplicationService.changePassword(request);
     }
 
@@ -107,7 +108,7 @@ public class AuthController {
     @SaCheckLogin
     @SaCheckPermission("user:password:reset")
     @PostMapping("/password/reset")
-    public ApiResponse<String> resetPassword(@RequestBody AdminResetPasswordRequest request) {
+    public ApiResponse<String> resetPassword(@Valid @RequestBody AdminResetPasswordRequest request) {
         return authApplicationService.adminResetPassword(request);
     }
 
@@ -120,7 +121,7 @@ public class AuthController {
      */
     @SaIgnore
     @PostMapping("/password/forgot/request")
-    public ApiResponse<PasswordResetCodeResponse> requestForgotPasswordCode(@RequestBody ForgotPasswordRequest request) {
+    public ApiResponse<PasswordResetCodeResponse> requestForgotPasswordCode(@Valid @RequestBody ForgotPasswordRequest request) {
         return authApplicationService.requestPasswordResetCode(request);
     }
 
@@ -133,7 +134,7 @@ public class AuthController {
      */
     @SaIgnore
     @PostMapping("/password/forgot/confirm")
-    public ApiResponse<String> confirmForgotPassword(@RequestBody ForgotPasswordConfirmRequest request) {
+    public ApiResponse<String> confirmForgotPassword(@Valid @RequestBody ForgotPasswordConfirmRequest request) {
         return authApplicationService.confirmForgotPassword(request);
     }
 }

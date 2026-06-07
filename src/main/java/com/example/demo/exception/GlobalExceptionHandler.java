@@ -4,8 +4,12 @@ import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import com.example.demo.model.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.stream.Collectors;
 
 @Slf4j
 @RestControllerAdvice
@@ -15,6 +19,15 @@ public class GlobalExceptionHandler {
     public ApiResponse<Object> handleMaxSizeException(org.springframework.web.multipart.MaxUploadSizeExceededException e) {
         log.error("文件上传大小超出限制", e);
         return ApiResponse.error(413, "文件大小超过限制，请上传更小的文件");
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ApiResponse<Object> handleMethodArgumentNotValidException(MethodArgumentNotValidException e) {
+        String message = e.getBindingResult().getFieldErrors().stream()
+                .map(FieldError::getDefaultMessage)
+                .collect(Collectors.joining("; "));
+        log.warn("Bean Validation 校验失败: {}", message);
+        return ApiResponse.validationError(message);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

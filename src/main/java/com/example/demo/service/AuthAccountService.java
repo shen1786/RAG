@@ -137,8 +137,8 @@ public class AuthAccountService {
     }
 
     public String normalizeUsername(String username) {
-        if (username == null || username.trim().length() < 3 || username.trim().length() > 32) {
-            throw new IllegalArgumentException("用户名长度必须在 3 到 32 个字符之间");
+        if (username == null) {
+            throw new IllegalArgumentException("用户名不能为空");
         }
         return username.trim();
     }
@@ -155,8 +155,8 @@ public class AuthAccountService {
     }
 
     private void validatePassword(String password) {
-        if (password == null || password.length() < 6 || password.length() > 64) {
-            throw new IllegalArgumentException("密码长度必须在 6 到 64 个字符之间");
+        if (password == null) {
+            throw new IllegalArgumentException("密码不能为空");
         }
     }
 

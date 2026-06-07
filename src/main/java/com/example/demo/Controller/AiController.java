@@ -6,6 +6,7 @@ import com.example.demo.model.dto.*;
 import com.example.demo.service.AiService;
 import com.example.demo.service.AuthContextService;
 import com.example.demo.service.AsrService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -41,7 +42,7 @@ public class AiController {
      */
     @SaCheckPermission("ai:session:list")
     @PostMapping("/session/list")
-    public ApiResponse<SessionListResponse> getUserSessions(@RequestBody SessionListRequest request) {
+    public ApiResponse<SessionListResponse> getUserSessions(@Valid @RequestBody SessionListRequest request) {
         request.setUserId(authContextService.resolveUserId(request.getUserId()));
         return aiService.getUserSessions(request);
     }
@@ -52,7 +53,7 @@ public class AiController {
      */
     @SaCheckPermission("ai:session:delete")
     @PostMapping("/session/delete")
-    public ApiResponse<SessionDeleteResponse> deleteSession(@RequestBody SessionDeleteRequest request) {
+    public ApiResponse<SessionDeleteResponse> deleteSession(@Valid @RequestBody SessionDeleteRequest request) {
         request.setUserId(authContextService.resolveUserId(request.getUserId()));
         return aiService.deleteSession(request);
     }
@@ -63,7 +64,7 @@ public class AiController {
      */
     @SaCheckPermission("ai:session:extract-profile")
     @PostMapping("/session/extract-profile")
-    public ApiResponse<String> extractProfile(@RequestBody SessionDeleteRequest request) {
+    public ApiResponse<String> extractProfile(@Valid @RequestBody SessionDeleteRequest request) {
         request.setUserId(authContextService.resolveUserId(request.getUserId()));
         return aiService.extractProfile(request);
     }
@@ -85,7 +86,7 @@ public class AiController {
      */
     @SaCheckPermission("ai:session:create")
     @PostMapping("/session/create")
-    public ApiResponse<SessionCreateResponse> createSession(@RequestBody SessionCreateRequest request) {
+    public ApiResponse<SessionCreateResponse> createSession(@Valid @RequestBody SessionCreateRequest request) {
         request.setUserId(authContextService.resolveUserId(request.getUserId()));
         return aiService.createSession(request);
     }
@@ -96,7 +97,7 @@ public class AiController {
      */
     @SaCheckPermission("ai:multi-turn:chat")
     @PostMapping(value = "/multi-turn/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<String>> multiTurnChat(@RequestBody MultiTurnChatRequest request) {
+    public Flux<ServerSentEvent<String>> multiTurnChat(@Valid @RequestBody MultiTurnChatRequest request) {
         request.setUserId(authContextService.resolveUserId(request.getUserId()));
         return aiService.multiTurnChat(request);
     }
