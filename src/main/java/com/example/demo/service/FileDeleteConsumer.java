@@ -99,11 +99,11 @@ public class FileDeleteConsumer {
                 task.setMinioStatus(FileDeleteTask.StepStatus.FAILED);
             }
             saveTaskStatus(task);
-            safeAck(channel, deliveryTag);
+            safeNack(channel, deliveryTag);
         } catch (Exception e) {
             log.error("删除任务处理异常: {}", task.getFilename(), e);
             saveTaskStatus(task);
-            safeAck(channel, deliveryTag);
+            safeNack(channel, deliveryTag);
         }
     }
 
@@ -173,6 +173,17 @@ public class FileDeleteConsumer {
             }
         } catch (Exception e) {
             log.error("消息确认失败: deliveryTag={}", deliveryTag, e);
+        }
+    }
+
+    private void safeNack(Channel channel, long deliveryTag) {
+        try {
+            if (channel.isOpen()) {
+                channel.basicNack(deliveryTag, false, false);
+            }
+            log.warn("消息 nack 成功, deliveryTag={}", deliveryTag);
+        } catch (Exception e) {
+            log.error("消息 nack 失败, deliveryTag={}", deliveryTag, e);
         }
     }
 }

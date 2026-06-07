@@ -90,7 +90,7 @@ public class FileProcessConsumer {
             if (task.getFileHash() != null && documentFileService.isActive(task.getUserId(), task.getFileHash())) {
                 documentFileService.markFailed(task.getUserId(), task.getFileHash(), normalizeErrorMessage(e));
             }
-            safeAck(channel, deliveryTag);
+            safeNack(channel, deliveryTag);
         }
     }
 
@@ -162,6 +162,17 @@ public class FileProcessConsumer {
             }
         } catch (Exception e) {
             log.error("消息确认失败: deliveryTag={}", deliveryTag, e);
+        }
+    }
+
+    private void safeNack(Channel channel, long deliveryTag) {
+        try {
+            if (channel.isOpen()) {
+                channel.basicNack(deliveryTag, false, false);
+            }
+            log.warn("消息 nack 成功, deliveryTag={}", deliveryTag);
+        } catch (Exception e) {
+            log.error("消息 nack 失败, deliveryTag={}", deliveryTag, e);
         }
     }
 

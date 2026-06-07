@@ -12,6 +12,9 @@ import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * RabbitMQ配置类
  * 定义文件处理相关的队列、交换机和绑定关系
@@ -105,7 +108,10 @@ public class RabbitMQConfig {
      */
     @Bean
     public Queue fileProcessQueue() {
-        return new Queue(FILE_PROCESS_QUEUE, true);
+        Map<String, Object> args = new HashMap<>();
+        args.put("x-dead-letter-exchange", FILE_EXCHANGE);
+        args.put("x-dead-letter-routing-key", FILE_DLQ_ROUTING_KEY);
+        return new Queue(FILE_PROCESS_QUEUE, true, false, false, args);
     }
 
     /**
@@ -121,7 +127,10 @@ public class RabbitMQConfig {
      */
     @Bean
     public Queue fileDeleteQueue() {
-        return new Queue(FILE_DELETE_QUEUE, true);
+        Map<String, Object> args = new HashMap<>();
+        args.put("x-dead-letter-exchange", FILE_EXCHANGE);
+        args.put("x-dead-letter-routing-key", FILE_DELETE_DLQ_ROUTING_KEY);
+        return new Queue(FILE_DELETE_QUEUE, true, false, false, args);
     }
 
     /**

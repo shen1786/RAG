@@ -72,7 +72,7 @@ class FileProcessConsumerTest {
         verify(ragUnitService).removeIndexedData(task.getSourceId());
         verify(documentFileService).markFailed(task.getUserId(), task.getFileHash(), "文件处理失败，请稍后重试");
         verify(documentFileService, never()).updateStatus(task.getUserId(), task.getFileHash(), DocumentFileStatus.SUCCESS, 1, null);
-        verify(channel).basicAck(7L, false);
+        verify(channel).basicNack(7L, false, false);
     }
 
     @Test
