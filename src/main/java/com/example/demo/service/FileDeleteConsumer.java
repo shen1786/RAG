@@ -9,6 +9,7 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
@@ -23,7 +24,12 @@ public class FileDeleteConsumer {
     private RagUnitMapper ragUnitMapper;
 
     @Autowired
-    private VectorStore vectorStore;
+    @Qualifier("leafVectorStore")
+    private VectorStore leafVectorStore;
+
+    @Autowired
+    @Qualifier("summaryVectorStore")
+    private VectorStore summaryVectorStore;
 
     @Autowired
     private UploadService uploadService;
@@ -102,15 +108,30 @@ public class FileDeleteConsumer {
     }
 
     private boolean deleteFromRedis(FileDeleteTask task) {
-        try {
-            if (task.getVectorIds() != null && !task.getVectorIds().isEmpty()) {
-                vectorStore.delete(task.getVectorIds());
-            }
+        if (task.getVectorIds() == null || task.getVectorIds().isEmpty()) {
             return true;
-        } catch (Exception e) {
-            log.error("Redis 删除失败: {}", task.getFilename(), e);
-            return false;
         }
+
+        boolean leafSuccess = true;
+        boolean summarySuccess = true;
+
+        try {
+            leafVectorStore.delete(task.getVectorIds());
+            log.info("leaf 向量删除完成, vectorIds={}", task.getVectorIds().size());
+        } catch (Exception e) {
+            leafSuccess = false;
+            log.error("leaf 向量删除失败, vectorIds={}", task.getVectorIds().size(), e);
+        }
+
+        try {
+            summaryVectorStore.delete(task.getVectorIds());
+            log.info("summary 向量删除完成, vectorIds={}", task.getVectorIds().size());
+        } catch (Exception e) {
+            summarySuccess = false;
+            log.error("summary 向量删除失败, vectorIds={}", task.getVectorIds().size(), e);
+        }
+
+        return leafSuccess && summarySuccess;
     }
 
     private boolean deleteFromMySQL(FileDeleteTask task) {
