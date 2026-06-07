@@ -27,7 +27,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
         if (origins == null || origins.isEmpty()) {
             return;
         }
-        registry.addMapping("/api/**")
+        registry.addMapping("/**")
                 .allowedOrigins(origins.toArray(new String[0]))
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")

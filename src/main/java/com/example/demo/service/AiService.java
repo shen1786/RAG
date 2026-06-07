@@ -27,12 +27,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AiService {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final ChatClient deepchatClient;
     private final RagRetrievalService ragRetrievalService;
@@ -177,7 +181,7 @@ public class AiService {
 
         String citationsJson;
         try {
-            citationsJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(citations);
+            citationsJson = MAPPER.writeValueAsString(citations);
         } catch (Exception e) {
             log.error("序列化引文失败", e);
             citationsJson = "[]";
