@@ -723,39 +723,25 @@ public class RagRetrievalService {
 
     @CircuitBreaker(name = "dashscope-rerank", fallbackMethod = "rerankFallback")
     public ScoredDocumentsResult rerank(String query, List<Document> candidates, int topK) {
-        try {
-            RerankRequest request = new RerankRequest(query, candidates);
-            RerankResponse response = rerankModel.call(request);
+        RerankRequest request = new RerankRequest(query, candidates);
+        RerankResponse response = rerankModel.call(request);
 
-            List<DocumentWithScore> scoredDocs = response.getResults();
-            List<Document> result = new ArrayList<>();
-            Map<String, Double> scoreById = new HashMap<>();
-            Double topScore = null;
+        List<DocumentWithScore> scoredDocs = response.getResults();
+        List<Document> result = new ArrayList<>();
+        Map<String, Double> scoreById = new HashMap<>();
+        Double topScore = null;
 
-            for (int i = 0; i < Math.min(topK, scoredDocs.size()); i++) {
-                DocumentWithScore dws = scoredDocs.get(i);
-                Document output = dws.getOutput();
-                result.add(output);
-                scoreById.put(output.getId(), dws.getScore());
-                if (i == 0) {
-                    topScore = dws.getScore();
-                }
+        for (int i = 0; i < Math.min(topK, scoredDocs.size()); i++) {
+            DocumentWithScore dws = scoredDocs.get(i);
+            Document output = dws.getOutput();
+            result.add(output);
+            scoreById.put(output.getId(), dws.getScore());
+            if (i == 0) {
+                topScore = dws.getScore();
             }
-
-            return new ScoredDocumentsResult(result, scoreById, topScore);
-        } catch (Exception e) {
-            log.warn("Rerank 调用失败，回退为原始排序: {}", e.getMessage());
-            List<Document> fallback = candidates.stream()
-                    .limit(topK)
-                    .collect(Collectors.toList());
-            Map<String, Double> scoreById = new HashMap<>();
-            for (Document doc : fallback) {
-                scoreById.put(doc.getId(), doc.getScore());
-            }
-            Double fallbackScore = (!fallback.isEmpty() && fallback.get(0).getScore() != null)
-                    ? fallback.get(0).getScore() : null;
-            return new ScoredDocumentsResult(fallback, scoreById, fallbackScore);
         }
+
+        return new ScoredDocumentsResult(result, scoreById, topScore);
     }
 
     public ScoredDocumentsResult rerankFallback(String query, List<Document> candidates, int topK, Throwable t) {

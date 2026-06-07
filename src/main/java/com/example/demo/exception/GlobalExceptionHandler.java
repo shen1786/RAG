@@ -54,6 +54,12 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(403, "无权访问该接口");
     }
 
+    @ExceptionHandler(io.github.resilience4j.circuitbreaker.CallNotPermittedException.class)
+    public ApiResponse<Object> handleCallNotPermittedException(io.github.resilience4j.circuitbreaker.CallNotPermittedException e) {
+        log.warn("熔断器已打开，拒绝调用: {}", e.getMessage());
+        return ApiResponse.error(503, "服务暂时不可用，请稍后重试");
+    }
+
     @ExceptionHandler(Exception.class)
     public ApiResponse<Object> handleException(Exception e) {
         log.error("系统未处理的异常: ", e);

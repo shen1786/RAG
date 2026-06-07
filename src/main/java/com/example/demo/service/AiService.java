@@ -132,12 +132,11 @@ public class AiService {
         return ApiResponse.success(data);
     }
 
-    public ApiResponse<String> chatFallback(String msg, String userId, Throwable t) {
+    public String chatFallback(String msg, String userId, Throwable t) {
         log.warn("chat 熔断降级: userId={}, error={}", userId, t.getMessage());
-        return ApiResponse.error(503, "AI 服务暂时不可用，请稍后重试");
+        return "AI 服务暂时不可用，请稍后重试";
     }
 
-    @CircuitBreaker(name = "dashscope-chat", fallbackMethod = "multiTurnChatFallback")
     public Flux<ServerSentEvent<String>> multiTurnChat(MultiTurnChatRequest request) {
         String userId = requireActiveSessionUser(request.getSessionId());
         if (request.getUserId() != null && !request.getUserId().equals(userId)) {
