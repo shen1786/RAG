@@ -166,9 +166,12 @@ public class FileProcessConsumer {
     }
 
     private String normalizeErrorMessage(Exception e) {
-        if (e == null || e.getMessage() == null || e.getMessage().isBlank()) {
+        if (e == null) {
             return "文件处理失败";
         }
-        return e.getMessage();
+        if (e instanceof IllegalStateException || e instanceof IllegalArgumentException) {
+            return e.getMessage();
+        }
+        return "文件处理失败，请稍后重试";
     }
 }

@@ -91,15 +91,15 @@ class AuthApplicationServiceTest {
         user.setEmail("alice@example.com");
         user.setStatus("ACTIVE");
 
-        when(authAccountService.register("alice", "secret123", "alice@example.com", "admin")).thenReturn(user);
-        when(authPermissionService.getRoleList("u-1", "login")).thenReturn(List.of("admin"));
-        when(authPermissionService.getPermissionList("u-1", "login")).thenReturn(List.of("user:manage"));
+        when(authAccountService.register("alice", "secret123", "alice@example.com")).thenReturn(user);
+        when(authPermissionService.getRoleList("u-1", "login")).thenReturn(List.of("user"));
+        when(authPermissionService.getPermissionList("u-1", "login")).thenReturn(List.of("document:list"));
 
-        ApiResponse<UserInfoResponse> response = authApplicationService.register(new RegisterRequest("alice", "secret123", "alice@example.com", "admin"));
+        ApiResponse<UserInfoResponse> response = authApplicationService.register(new RegisterRequest("alice", "secret123", "alice@example.com"));
 
         assertEquals("u-1", response.getData().getUserId());
         assertEquals("alice@example.com", response.getData().getEmail());
-        assertEquals(List.of("admin"), response.getData().getRoles());
+        assertEquals(List.of("user"), response.getData().getRoles());
     }
 
     @Test

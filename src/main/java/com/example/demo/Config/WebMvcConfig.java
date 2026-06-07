@@ -7,15 +7,38 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.servlet.config.annotation.AsyncSupportConfigurer;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.util.List;
 
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
 
+    private final CorsProperties corsProperties;
+
+    public WebMvcConfig(CorsProperties corsProperties) {
+        this.corsProperties = corsProperties;
+    }
+
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        List<String> origins = corsProperties.getAllowedOrigins();
+        if (origins == null || origins.isEmpty()) {
+            return;
+        }
+        registry.addMapping("/api/**")
+                .allowedOrigins(origins.toArray(new String[0]))
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedHeaders("*")
+                .allowCredentials(true)
+                .maxAge(3600);
+    }
+
     @Override
     public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
         configurer.setTaskExecutor(mvcTaskExecutor());
-        // configurer.setDefaultTimeout(30000); // optional timeout 
+        // configurer.setDefaultTimeout(30000); // optional timeout
     }
 
     @Bean

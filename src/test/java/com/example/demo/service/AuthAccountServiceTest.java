@@ -52,7 +52,7 @@ class AuthAccountServiceTest {
         });
         when(authUserRoleMapper.insert(any(AuthUserRole.class))).thenReturn(1);
 
-        AuthUser registered = authAccountService.register("alice", "secret123", "alice@example.com", "user");
+        AuthUser registered = authAccountService.register("alice", "secret123", "alice@example.com");
         AuthUser authenticated = authAccountService.authenticate("alice", "secret123");
 
         assertEquals(registered.getId(), authenticated.getId());
@@ -117,7 +117,7 @@ class AuthAccountServiceTest {
 
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
-                () -> authAccountService.register("alice", "secret123", "alice@example.com", "user")
+                () -> authAccountService.register("alice", "secret123", "alice@example.com")
         );
 
         assertEquals("邮箱已被占用", error.getMessage());

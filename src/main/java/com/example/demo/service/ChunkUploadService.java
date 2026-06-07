@@ -3,6 +3,8 @@ package com.example.demo.service;
 import com.example.demo.model.dto.ChunkUploadStatus;
 import com.example.demo.model.dto.FileExistenceResponse;
 import com.example.demo.model.dto.UploadResponse;
+import com.example.demo.util.FileNameSanitizer;
+import com.example.demo.util.HashUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -57,10 +59,15 @@ public class ChunkUploadService {
 
         ChunkUploadStatus status = chunkUploadRedisService.getUploadStatus(userId, fileHash);
         if (status == null) {
-            throw new RuntimeException("上传状态不存在: " + fileHash);
+            throw new RuntimeException("上传状态不存在");
         }
 
-        Path tempDirPath = Paths.get(status.getTempDir());
+        Path tempDirPath = Paths.get(status.getTempDir()).toAbsolutePath().normalize();
+        Path allowedBase = Paths.get(tempDirBase).toAbsolutePath().normalize();
+        if (!FileNameSanitizer.isInsideAllowedBase(tempDirPath, allowedBase)) {
+            log.warn("检测到 uploadChunk tempDir 路径穿越: userId={}, fileHash={}, tempDir={}", userId, fileHash, status.getTempDir());
+            throw new IllegalArgumentException("临时目录路径不合法");
+        }
         if (!Files.exists(tempDirPath)) {
             Files.createDirectories(tempDirPath);
         }
@@ -78,7 +85,7 @@ public class ChunkUploadService {
     public UploadResponse mergeChunks(String userId, String fileHash, String filename) throws Exception {
         ChunkUploadStatus status = chunkUploadRedisService.getUploadStatus(userId, fileHash);
         if (status == null) {
-            throw new RuntimeException("上传状态不存在: " + fileHash);
+            throw new RuntimeException("上传状态不存在");
         }
 
         if (!status.isAllChunksUploaded()) {
@@ -86,8 +93,17 @@ public class ChunkUploadService {
                     "分片未上传完成: %d/%d", status.getUploadedChunks().size(), status.getTotalChunks()));
         }
 
-        Path tempDirPath = Paths.get(status.getTempDir());
-        Path mergedFile = tempDirPath.resolve("merged_" + filename);
+        Path tempDirPath = Paths.get(status.getTempDir()).toAbsolutePath().normalize();
+        Path allowedBase = Paths.get(tempDirBase).toAbsolutePath().normalize();
+        if (!FileNameSanitizer.isInsideAllowedBase(tempDirPath, allowedBase)) {
+            log.warn("检测到 mergeChunks tempDir 路径穿越: userId={}, fileHash={}, tempDir={}", userId, fileHash, status.getTempDir());
+            throw new IllegalArgumentException("临时目录路径不合法");
+        }
+        Path mergedFile = tempDirPath.resolve("merged_" + filename).normalize();
+        if (!FileNameSanitizer.isInsideAllowedBase(mergedFile, tempDirPath)) {
+            log.warn("检测到 mergeChunks 文件名路径穿越: userId={}, fileHash={}, filename={}", userId, fileHash, filename);
+            throw new IllegalArgumentException("文件名不合法");
+        }
 
         try (FileOutputStream fos = new FileOutputStream(mergedFile.toFile())) {
             for (int i = 0; i < status.getTotalChunks(); i++) {
@@ -115,7 +131,12 @@ public class ChunkUploadService {
                 file
         );
 
-        UploadResponse response = ragUnitService.processAndStoreAsync(multipartFile, fileHash, userId);
+        // 合并完成后，服务端重算 SHA-256
+        String serverFileHash = HashUtils.hashFile(mergedFile);
+        log.info("分片合并完成, 服务端 hash={}, 原始 fileHash={}", serverFileHash, fileHash);
+
+        // 使用服务端重算的 hash 传给下游处理
+        UploadResponse response = ragUnitService.processAndStoreAsync(multipartFile, serverFileHash, userId);
 
         cleanupTempFiles(tempDirPath);
         chunkUploadRedisService.deleteUploadStatus(userId, fileHash);

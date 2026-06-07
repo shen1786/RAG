@@ -38,8 +38,7 @@ public class AuthApplicationService {
         AuthUser user = authAccountService.register(
                 request.getUsername(),
                 request.getPassword(),
-                request.getEmail(),
-                request.getRoleCode()
+                request.getEmail()
         );
         return ApiResponse.success(toUserInfo(user));
     }

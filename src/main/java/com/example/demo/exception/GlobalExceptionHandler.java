@@ -44,7 +44,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ApiResponse<Object> handleException(Exception e) {
         log.error("系统未处理的异常: ", e);
-        String msg = e.getMessage() != null ? e.getMessage() : e.toString();
-        return ApiResponse.serverError("服务器繁忙，处理超时，请稍后再试. 错误详情: " + msg);
+        return ApiResponse.serverError("服务器内部错误，请稍后重试");
     }
 }

@@ -33,9 +33,9 @@ export const useAuthStore = defineStore('auth', {
         throw err
       }
     },
-    async register(username, password, email, roleCode) {
+    async register(username, password, email) {
       try {
-        const res = await auth.register(username, password, email, roleCode)
+        const res = await auth.register(username, password, email)
         if (res.code !== 200) {
           throw new Error(res.message || '注册失败')
         }

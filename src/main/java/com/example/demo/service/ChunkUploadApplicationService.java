@@ -1,5 +1,6 @@
 package com.example.demo.service;
 
+import com.example.demo.util.FileNameSanitizer;
 import com.example.demo.model.dto.ApiResponse;
 import com.example.demo.model.dto.ChunkUploadResponse;
 import com.example.demo.model.dto.ChunkUploadStatus;
@@ -90,10 +91,11 @@ public class ChunkUploadApplicationService {
         }
 
         try {
-            UploadResponse response = chunkUploadService.mergeChunks(userId, fileHash, filename);
+            String safeFilename = FileNameSanitizer.sanitize(filename);
+            UploadResponse response = chunkUploadService.mergeChunks(userId, fileHash, safeFilename);
             return ApiResponse.success("合并成功", MergeChunkResult.builder()
-                    .fileHash(fileHash)
-                    .filename(filename)
+                    .fileHash(response.getFileHash() != null ? response.getFileHash() : fileHash)
+                    .filename(safeFilename)
                     .sourceId(response.getSourceId())
                     .status(response.getStatus() != null ? response.getStatus().name() : null)
                     .success(response.isSuccess())

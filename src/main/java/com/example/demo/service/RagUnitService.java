@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.demo.mapper.RagUnitMapper;
+import com.example.demo.util.FileNameSanitizer;
 import com.example.demo.model.DocumentFile;
 import com.example.demo.model.DocumentFileStatus;
 import com.example.demo.model.RagNodeType;
@@ -20,6 +21,7 @@ import com.example.demo.service.processor.PowerPointProcessor;
 import com.example.demo.service.processor.TabularProcessor;
 import com.example.demo.service.processor.TextProcessor;
 import com.example.demo.service.processor.VideoProcessor;
+import com.example.demo.util.HashUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.session.ExecutorType;
 import org.apache.ibatis.session.SqlSession;
@@ -31,7 +33,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.security.DigestInputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -192,6 +196,7 @@ public class RagUnitService {
         validateFileHash(fileHash);
         validateUserId(userId);
 
+        // 先用客户端 hash 做快速去重（防御性检查）
         DocumentFile existing = documentFileService.getByFileHash(userId, fileHash);
         if (existing != null) {
             if (Boolean.TRUE.equals(existing.getDeleted())) {
@@ -208,9 +213,33 @@ public class RagUnitService {
             }
         }
 
+        // 服务端重算 SHA-256，顺带检测 mimeType
         String mimeType;
-        try (InputStream inputStream = file.getInputStream()) {
-            mimeType = tika.detect(inputStream, filename);
+        String serverFileHash;
+        try (DigestInputStream dis = HashUtils.wrapWithDigest(file.getInputStream())) {
+            mimeType = tika.detect(dis, filename);
+            serverFileHash = HashUtils.extractHex(dis);
+        }
+
+        // 用服务端重算的 hash 再做一次去重，防止客户端 hash 不一致的情况
+        if (!serverFileHash.equals(fileHash)) {
+            log.warn("客户端 hash 与服务端 hash 不一致: client={}, server={}, userId={}, filename={}",
+                    fileHash, serverFileHash, userId, filename);
+            DocumentFile serverExisting = documentFileService.getByFileHash(userId, serverFileHash);
+            if (serverExisting != null) {
+                if (Boolean.TRUE.equals(serverExisting.getDeleted())) {
+                    throw new IllegalStateException("该文档正在删除中，请稍后重试");
+                }
+                if (serverExisting.getStatus() == DocumentFileStatus.SUCCESS) {
+                    return buildUploadResponse(serverExisting, "文件已存在，无需重复上传", true);
+                }
+                if (serverExisting.getStatus() != null && serverExisting.getStatus().isProcessing()) {
+                    return buildUploadResponse(serverExisting, "文件已在后台处理中，请稍后查看状态", true);
+                }
+                if (serverExisting.getStatus() == DocumentFileStatus.FAILED) {
+                    throw new IllegalStateException("该文档已有失败记录，请先删除后重新上传");
+                }
+            }
         }
 
         MediaProcessor processor = findProcessorByMimeType(mimeType);
@@ -219,20 +248,22 @@ public class RagUnitService {
         }
 
         SourceType sourceType = determineSourceType(mimeType);
+        String safeFilename = FileNameSanitizer.sanitize(filename);
         String sourceId = UUID.randomUUID().toString();
-        String minioPath = sourceId + "/" + filename;
+        String minioPath = FileNameSanitizer.buildSafeObjectKey(sourceId, safeFilename);
 
-        documentFileService.createUploadingRecord(userId, sourceId, fileHash, filename, fileSize, sourceType);
+        // 使用服务端重算的 hash 作为 fileHash 存入数据库，确保完整性校验可信
+        documentFileService.createUploadingRecord(userId, sourceId, serverFileHash, filename, fileSize, sourceType);
 
         try {
             uploadService.uploadFile(file, minioPath);
             String minioUrl = uploadService.getFileUrl(minioPath);
-            documentFileService.markUploadSuccess(userId, fileHash, sourceType, minioPath, minioUrl);
+            documentFileService.markUploadSuccess(userId, serverFileHash, sourceType, minioPath, minioUrl);
 
             FileProcessTask task = FileProcessTask.builder()
                     .sourceId(sourceId)
                     .filename(filename)
-                    .fileHash(fileHash)
+                    .fileHash(serverFileHash)
                     .userId(userId)
                     .mimeType(mimeType)
                     .minioPath(minioPath)
@@ -244,12 +275,12 @@ public class RagUnitService {
             fileProcessProducer.sendFileProcessTask(task);
 
             return buildUploadResponse(
-                    documentFileService.getActiveByFileHash(userId, fileHash),
+                    documentFileService.getActiveByFileHash(userId, serverFileHash),
                     "文件上传成功，正在后台处理中...",
                     true
             );
         } catch (Exception e) {
-            documentFileService.markFailed(userId, fileHash, normalizeErrorMessage(e));
+            documentFileService.markFailed(userId, serverFileHash, normalizeErrorMessage(e));
             throw e;
         }
     }

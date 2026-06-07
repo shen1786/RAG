@@ -7,7 +7,6 @@ import com.example.demo.model.dto.UploadResponse;
 import com.example.demo.service.AuthContextService;
 import com.example.demo.service.UploadApplicationService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,7 +22,6 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/upload")
-@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class UploadController {
 

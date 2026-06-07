@@ -60,11 +60,12 @@ public class EmailService {
     }
 
     private void writeFallbackMail(String username, String email, String resetCode, long expiresInSeconds) {
+        String maskedCode = resetCode.length() >= 2 ? resetCode.substring(0, 2) + "****" : "******";
         try {
             Path outputDir = Paths.get(fallbackDir);
             Files.createDirectories(outputDir);
             Path outputFile = outputDir.resolve("reset-" + sanitizeFilename(username) + ".txt");
-            Files.writeString(outputFile, buildMailBody(username, email, resetCode, expiresInSeconds), StandardCharsets.UTF_8);
+            Files.writeString(outputFile, buildMailBody(username, email, maskedCode, expiresInSeconds), StandardCharsets.UTF_8);
             log.info("密码重置模拟邮件已写入: {}", outputFile.toAbsolutePath());
         } catch (IOException ex) {
             log.error("写入密码重置模拟邮件失败: username={}, email={}", username, email, ex);

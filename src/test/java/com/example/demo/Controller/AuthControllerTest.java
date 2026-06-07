@@ -39,7 +39,7 @@ class AuthControllerTest {
     void shouldDelegateRegisterAndProfile() {
         AuthApplicationService authApplicationService = mock(AuthApplicationService.class);
         AuthController controller = new AuthController(authApplicationService);
-        RegisterRequest registerRequest = new RegisterRequest("alice", "secret123", "alice@example.com", "admin");
+        RegisterRequest registerRequest = new RegisterRequest("alice", "secret123", "alice@example.com");
         UserInfoResponse userInfo = new UserInfoResponse("u-1", "alice", "alice@example.com", "ACTIVE", List.of("admin"), List.of("ai:session:create"));
 
         when(authApplicationService.register(registerRequest)).thenReturn(ApiResponse.success(userInfo));

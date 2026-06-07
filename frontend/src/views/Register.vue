@@ -81,18 +81,6 @@
             />
           </div>
 
-          <div class="space-y-xs">
-            <label for="roleCode" class="font-label-md text-label-md text-on-surface-variant block">账户角色</label>
-            <select 
-              id="roleCode"
-              v-model="roleCode" 
-              class="w-full px-md py-sm border border-outline-variant rounded-lg bg-surface focus:border-primary focus:ring-2 focus:ring-primary-container outline-none transition-all font-body-sm text-body-sm"
-            >
-              <option value="user">普通用户 (User)</option>
-              <option value="admin">系统管理员 (Admin)</option>
-            </select>
-          </div>
-
           <button 
             type="submit" 
             :disabled="loading"
@@ -126,7 +114,6 @@ const username = ref('')
 const email = ref('')
 const password = ref('')
 const confirmPassword = ref('')
-const roleCode = ref('user')
 const loading = ref(false)
 const errorMsg = ref('')
 const successMsg = ref('')
@@ -150,7 +137,7 @@ const handleRegister = async () => {
   successMsg.value = ''
 
   try {
-    await authStore.register(username.value, password.value, email.value, roleCode.value)
+    await authStore.register(username.value, password.value, email.value)
     successMsg.value = '注册成功！即将为您跳转到登录页面...'
     setTimeout(() => {
       router.push({ name: 'Login' })

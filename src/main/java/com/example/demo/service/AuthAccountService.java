@@ -32,7 +32,7 @@ public class AuthAccountService {
         this.authUserRoleMapper = authUserRoleMapper;
     }
 
-    public AuthUser register(String username, String password, String email, String roleCode) {
+    public AuthUser register(String username, String password, String email) {
         String normalizedUsername = normalizeUsername(username);
         String normalizedEmail = normalizeEmail(email);
         validatePassword(password);
@@ -43,9 +43,9 @@ public class AuthAccountService {
             throw new IllegalArgumentException("邮箱已被占用");
         }
 
-        AuthRole role = authRoleMapper.selectByCode(resolveRoleCode(roleCode));
+        AuthRole role = authRoleMapper.selectByCode("user");
         if (role == null) {
-            throw new IllegalArgumentException("角色不存在");
+            throw new IllegalArgumentException("默认用户角色不存在");
         }
 
         AuthUser user = new AuthUser();
@@ -171,12 +171,5 @@ public class AuthAccountService {
         user.setPasswordHash(passwordEncoder.encode(rawPassword));
         user.setUpdatedAt(LocalDateTime.now());
         authUserMapper.updateById(user);
-    }
-
-    private String resolveRoleCode(String roleCode) {
-        if (roleCode == null || roleCode.isBlank()) {
-            return "user";
-        }
-        return roleCode.trim();
     }
 }

@@ -18,7 +18,7 @@ class WebMvcConfigTest {
 
     @Test
     void shouldPropagateRequestContextIntoAsyncTask() {
-        WebMvcConfig config = new WebMvcConfig();
+        WebMvcConfig config = new WebMvcConfig(new CorsProperties());
         TaskDecorator taskDecorator = config.requestContextTaskDecorator();
 
         MockHttpServletRequest request = new MockHttpServletRequest();
