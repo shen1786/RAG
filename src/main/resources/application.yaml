@@ -1,4 +1,4 @@
-﻿server:
+server:
   servlet:
     encoding:
       enabled: true
@@ -195,5 +195,32 @@ app:
 mineru:
   api-key: ${MINERU_API_KEY:your-mineru-api-key}
   model-version: vlm
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      dashscope-chat:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 80
+        slow-call-duration-threshold: 10s
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        register-health-indicator: true
+      dashscope-rerank:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 80
+        slow-call-duration-threshold: 5s
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        register-health-indicator: true
+  timelimiter:
+    instances:
+      dashscope-chat:
+        timeout-duration: 60s
+        cancel-running-future: false
 
 

@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 
@@ -47,6 +48,7 @@ public class AiService {
     private final SummaryWindowChatMemory chatMemory;
     private final SessionManager sessionManager;
 
+    @CircuitBreaker(name = "dashscope-chat", fallbackMethod = "chatFallback")
     public String chat(String msg, String userId) {
         RetrievalResult result = ragRetrievalService.retrieve(msg, userId);
         String systemPrompt = buildSingleTurnSystemPrompt(result);
@@ -130,6 +132,12 @@ public class AiService {
         return ApiResponse.success(data);
     }
 
+    public ApiResponse<String> chatFallback(String msg, String userId, Throwable t) {
+        log.warn("chat 熔断降级: userId={}, error={}", userId, t.getMessage());
+        return ApiResponse.error(503, "AI 服务暂时不可用，请稍后重试");
+    }
+
+    @CircuitBreaker(name = "dashscope-chat", fallbackMethod = "multiTurnChatFallback")
     public Flux<ServerSentEvent<String>> multiTurnChat(MultiTurnChatRequest request) {
         String userId = requireActiveSessionUser(request.getSessionId());
         if (request.getUserId() != null && !request.getUserId().equals(userId)) {
@@ -208,6 +216,15 @@ public class AiService {
                         .build());
 
         return Flux.concat(citationsFlux, textFlux);
+    }
+
+    public Flux<ServerSentEvent<String>> multiTurnChatFallback(MultiTurnChatRequest request, Throwable t) {
+        log.warn("multiTurnChat 熔断降级: sessionId={}, error={}", request.getSessionId(), t.getMessage());
+        ServerSentEvent<String> errorEvent = ServerSentEvent.<String>builder()
+                .event("error")
+                .data("AI 服务暂时不可用，请稍后重试")
+                .build();
+        return Flux.just(errorEvent);
     }
 
     private String buildSingleTurnSystemPrompt(RetrievalResult result) {

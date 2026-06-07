@@ -12,6 +12,7 @@ import com.example.demo.model.RagUnit;
 import com.example.demo.model.dto.HierarchyHit;
 import com.example.demo.model.dto.RetrievalMode;
 import com.example.demo.model.dto.RetrievalResult;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -720,7 +721,8 @@ public class RagRetrievalService {
         return ids;
     }
 
-    private ScoredDocumentsResult rerank(String query, List<Document> candidates, int topK) {
+    @CircuitBreaker(name = "dashscope-rerank", fallbackMethod = "rerankFallback")
+    public ScoredDocumentsResult rerank(String query, List<Document> candidates, int topK) {
         try {
             RerankRequest request = new RerankRequest(query, candidates);
             RerankResponse response = rerankModel.call(request);
@@ -756,12 +758,26 @@ public class RagRetrievalService {
         }
     }
 
-    private static class ScoredDocumentsResult {
+    public ScoredDocumentsResult rerankFallback(String query, List<Document> candidates, int topK, Throwable t) {
+        log.warn("rerank 熔断降级，回退为原始排序: error={}", t.getMessage());
+        List<Document> fallback = candidates.stream()
+                .limit(topK)
+                .collect(Collectors.toList());
+        Map<String, Double> scoreById = new HashMap<>();
+        for (Document doc : fallback) {
+            scoreById.put(doc.getId(), doc.getScore());
+        }
+        Double fallbackScore = (!fallback.isEmpty() && fallback.get(0).getScore() != null)
+                ? fallback.get(0).getScore() : null;
+        return new ScoredDocumentsResult(fallback, scoreById, fallbackScore);
+    }
+
+    static class ScoredDocumentsResult {
         private final List<Document> documents;
         private final Map<String, Double> scoreById;
         private final Double topScore;
 
-        private ScoredDocumentsResult(List<Document> documents, Map<String, Double> scoreById, Double topScore) {
+        ScoredDocumentsResult(List<Document> documents, Map<String, Double> scoreById, Double topScore) {
             this.documents = documents;
             this.scoreById = scoreById;
             this.topScore = topScore;
