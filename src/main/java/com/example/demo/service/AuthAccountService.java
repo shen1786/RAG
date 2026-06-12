@@ -9,8 +9,10 @@ import com.example.demo.model.auth.AuthUser;
 import com.example.demo.model.auth.AuthUserRole;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -22,16 +24,20 @@ public class AuthAccountService {
     private final AuthUserMapper authUserMapper;
     private final AuthRoleMapper authRoleMapper;
     private final AuthUserRoleMapper authUserRoleMapper;
+    private final AuthPermissionService authPermissionService;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public AuthAccountService(AuthUserMapper authUserMapper,
                               AuthRoleMapper authRoleMapper,
-                              AuthUserRoleMapper authUserRoleMapper) {
+                              AuthUserRoleMapper authUserRoleMapper,
+                              AuthPermissionService authPermissionService) {
         this.authUserMapper = authUserMapper;
         this.authRoleMapper = authRoleMapper;
         this.authUserRoleMapper = authUserRoleMapper;
+        this.authPermissionService = authPermissionService;
     }
 
+    @Transactional
     public AuthUser register(String username, String password, String email) {
         String normalizedUsername = normalizeUsername(username);
         String normalizedEmail = normalizeEmail(email);
@@ -98,6 +104,18 @@ public class AuthAccountService {
         String normalizedUsername = normalizeUsername(username);
         AuthUser user = requireByUsername(normalizedUsername);
         validateNewPassword(newPassword, confirmNewPassword);
+
+        // 纵深防御：校验当前调用者是否具有管理员角色
+        try {
+            String currentUserId = cn.dev33.satoken.stp.StpUtil.getLoginIdAsString();
+            List<String> roles = authPermissionService.getRoleList(currentUserId, "login");
+            if (!roles.contains("admin")) {
+                throw new IllegalArgumentException("仅管理员可重置他人密码");
+            }
+        } catch (cn.dev33.satoken.exception.NotLoginException e) {
+            throw new IllegalArgumentException("未登录，无法执行密码重置");
+        }
+
         updatePasswordHash(user, newPassword);
         return user.getId();
     }
@@ -157,6 +175,22 @@ public class AuthAccountService {
     private void validatePassword(String password) {
         if (password == null) {
             throw new IllegalArgumentException("密码不能为空");
+        }
+        if (password.length() < 8) {
+            throw new IllegalArgumentException("密码长度不能少于8个字符");
+        }
+        if (password.length() > 128) {
+            throw new IllegalArgumentException("密码长度不能超过128个字符");
+        }
+        boolean hasLetter = false;
+        boolean hasDigit = false;
+        for (char c : password.toCharArray()) {
+            if (Character.isLetter(c)) hasLetter = true;
+            else if (Character.isDigit(c)) hasDigit = true;
+            if (hasLetter && hasDigit) break;
+        }
+        if (!hasLetter || !hasDigit) {
+            throw new IllegalArgumentException("密码必须包含字母和数字");
         }
     }
 

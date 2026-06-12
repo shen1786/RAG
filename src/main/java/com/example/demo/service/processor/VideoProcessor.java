@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -152,12 +153,22 @@ public class VideoProcessor implements MediaProcessor {
                 segmentIndex++;
             }
 
-            // 等待所有任务完成并收集结果
-            List<RagUnit> units = futures.stream()
-                    .map(CompletableFuture::join) // 阻塞等待每个任务完成
-                    .filter(unit -> unit != null)
-                    .sorted(Comparator.comparingInt(RagUnit::getChunkIndex)) // 保证顺序
-                    .collect(Collectors.toList());
+            // 等待所有任务完成并收集结果（带超时保护）
+            List<RagUnit> units = new ArrayList<>();
+            for (CompletableFuture<RagUnit> future : futures) {
+                try {
+                    RagUnit unit = future.get(5, TimeUnit.MINUTES);
+                    if (unit != null) {
+                        units.add(unit);
+                    }
+                } catch (java.util.concurrent.TimeoutException te) {
+                    log.error("视频分片处理超时（5分钟），跳过该分片", te);
+                    future.cancel(true);
+                } catch (Exception e) {
+                    log.error("等待视频分片结果失败", e);
+                }
+            }
+            units.sort(Comparator.comparingInt(RagUnit::getChunkIndex));
 
             log.info("视频处理完成，共生成 {} 个分片", units.size());
             return units;

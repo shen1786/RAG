@@ -6,19 +6,24 @@ import com.example.demo.mapper.AuthUserRoleMapper;
 import com.example.demo.model.auth.AuthRole;
 import com.example.demo.model.auth.AuthUser;
 import com.example.demo.model.auth.AuthUserRole;
+import cn.dev33.satoken.stp.StpUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -32,6 +37,9 @@ class AuthAccountServiceTest {
 
     @Mock
     private AuthUserRoleMapper authUserRoleMapper;
+
+    @Mock
+    private AuthPermissionService authPermissionService;
 
     @InjectMocks
     private AuthAccountService authAccountService;
@@ -100,10 +108,15 @@ class AuthAccountServiceTest {
             return 1;
         });
 
-        String userId = authAccountService.resetPasswordByUsername("alice", "resetSecret1", "resetSecret1");
+        try (MockedStatic<StpUtil> stpMock = mockStatic(StpUtil.class)) {
+            stpMock.when(StpUtil::getLoginIdAsString).thenReturn("admin-1");
+            when(authPermissionService.getRoleList("admin-1", "login")).thenReturn(List.of("admin"));
 
-        assertEquals("u-1", userId);
-        assertEquals("u-1", authAccountService.authenticate("alice", "resetSecret1").getId());
+            String userId = authAccountService.resetPasswordByUsername("alice", "resetSecret1", "resetSecret1");
+
+            assertEquals("u-1", userId);
+            assertEquals("u-1", authAccountService.authenticate("alice", "resetSecret1").getId());
+        }
     }
 
     @Test

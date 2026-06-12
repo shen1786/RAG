@@ -12,13 +12,19 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class SaTokenConfig implements WebMvcConfigurer {
 
     private final AuthSeedService authSeedService;
+    private final RateLimitInterceptor rateLimitInterceptor;
 
-    public SaTokenConfig(AuthSeedService authSeedService) {
+    public SaTokenConfig(AuthSeedService authSeedService, RateLimitInterceptor rateLimitInterceptor) {
         this.authSeedService = authSeedService;
+        this.rateLimitInterceptor = rateLimitInterceptor;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // 速率限制（登录、注册、密码重置请求）
+        registry.addInterceptor(rateLimitInterceptor)
+                .addPathPatterns("/auth/login", "/auth/register", "/auth/password/forgot/request");
+
         registry.addInterceptor(new SaInterceptor(handle -> StpUtil.checkLogin()) {
             @Override
             public boolean preHandle(jakarta.servlet.http.HttpServletRequest request, jakarta.servlet.http.HttpServletResponse response, Object handler) throws Exception {

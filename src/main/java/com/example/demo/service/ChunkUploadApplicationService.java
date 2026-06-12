@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import com.example.demo.util.FileNameSanitizer;
+import com.example.demo.util.HashUtils;
 import com.example.demo.model.dto.ApiResponse;
 import com.example.demo.model.dto.ChunkUploadResponse;
 import com.example.demo.model.dto.ChunkUploadStatus;
@@ -108,6 +109,6 @@ public class ChunkUploadApplicationService {
     }
 
     private boolean isValidSha256(String fileHash) {
-        return fileHash != null && fileHash.matches("^[a-fA-F0-9]{64}$");
+        return HashUtils.isValidSha256(fileHash);
     }
 }

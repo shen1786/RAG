@@ -99,7 +99,18 @@ public class FileProcessConsumer {
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setConnectTimeout(10000);
         connection.setReadTimeout(30000);
-        return connection.getInputStream();
+        InputStream rawStream = connection.getInputStream();
+        // 包装为 Closeable，确保调用方关闭 InputStream 时同时断开底层连接
+        return new java.io.FilterInputStream(rawStream) {
+            @Override
+            public void close() throws java.io.IOException {
+                try {
+                    super.close();
+                } finally {
+                    connection.disconnect();
+                }
+            }
+        };
     }
 
     public void saveDataWithTransaction(List<RagUnit> units, FileProcessTask task) throws Exception {
