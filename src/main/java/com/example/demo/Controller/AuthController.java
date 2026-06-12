@@ -8,6 +8,7 @@ import com.example.demo.model.dto.auth.AdminResetPasswordRequest;
 import com.example.demo.model.dto.auth.ChangePasswordRequest;
 import com.example.demo.model.dto.auth.ForgotPasswordConfirmRequest;
 import com.example.demo.model.dto.auth.ForgotPasswordRequest;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.example.demo.model.dto.auth.LoginRequest;
 import com.example.demo.model.dto.auth.LoginResponse;
 import com.example.demo.model.dto.auth.PasswordResetCodeResponse;
@@ -30,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/auth")
 @RequiredArgsConstructor
+@Tag(name = "认证管理", description = "注册、登录、密码修改与找回")
 public class AuthController {
 
     private final AuthApplicationService authApplicationService;

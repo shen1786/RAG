@@ -8,6 +8,8 @@ import com.example.demo.model.dto.UploadChunkResult;
 import com.example.demo.model.dto.UploadResponse;
 import com.example.demo.service.AuthContextService;
 import com.example.demo.service.ChunkUploadApplicationService;
+import com.example.demo.util.FileNameSanitizer;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,6 +25,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/api/upload/chunk")
 @RequiredArgsConstructor
+@Tag(name = "分片上传", description = "秒传校验、分片上传和分片合并")
 public class ChunkUploadController {
 
     private final ChunkUploadApplicationService chunkUploadApplicationService;
@@ -44,7 +47,7 @@ public class ChunkUploadController {
                                                               @RequestParam("filename") String filename,
                                                               @RequestParam("fileSize") Long fileSize,
                                                               @RequestParam("totalChunks") Integer totalChunks) {
-        return chunkUploadApplicationService.checkUploadStatus(fileHash, authContextService.resolveUserId(userId), filename, fileSize, totalChunks);
+        return chunkUploadApplicationService.checkUploadStatus(fileHash, authContextService.resolveUserId(userId), FileNameSanitizer.sanitize(filename), fileSize, totalChunks);
     }
 
     /**

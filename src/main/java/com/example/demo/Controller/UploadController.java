@@ -6,6 +6,7 @@ import com.example.demo.model.dto.FileExistenceResponse;
 import com.example.demo.model.dto.UploadResponse;
 import com.example.demo.service.AuthContextService;
 import com.example.demo.service.UploadApplicationService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,6 +24,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/upload")
 @RequiredArgsConstructor
+@Tag(name = "文件上传", description = "单文件/批量上传及文件存在性检查")
 public class UploadController {
 
     private final UploadApplicationService uploadApplicationService;

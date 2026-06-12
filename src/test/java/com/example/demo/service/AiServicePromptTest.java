@@ -30,7 +30,6 @@ class AiServicePromptTest {
                 null,
                 userProfileService,
                 null,
-                null,
                 null
         );
         RetrievalResult result = RetrievalResult.builder()

@@ -5,12 +5,12 @@ import com.alibaba.cloud.ai.model.RerankModel;
 import com.alibaba.cloud.ai.model.RerankRequest;
 import com.alibaba.cloud.ai.model.RerankResponse;
 import com.example.demo.Config.HierarchyConfig;
-import com.example.demo.mapper.RagUnitMapper;
 import com.example.demo.model.RagNodeType;
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.SourceType;
 import com.example.demo.model.dto.RetrievalMode;
 import com.example.demo.model.dto.RetrievalResult;
+import com.example.demo.repository.RagUnitQueryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,7 +54,7 @@ class RagRetrievalServiceTest {
     private RerankModel rerankModel;
 
     @Mock
-    private RagUnitMapper ragUnitMapper;
+    private RagUnitQueryRepository ragUnitQueryRepository;
 
     @Mock
     private RagUnitService ragUnitService;
@@ -72,7 +72,7 @@ class RagRetrievalServiceTest {
                 leafVectorStore,
                 summaryVectorStore,
                 rerankModel,
-                ragUnitMapper,
+                ragUnitQueryRepository,
                 ragUnitService,
                 hierarchyConfig,
                 Runnable::run
@@ -177,8 +177,8 @@ class RagRetrievalServiceTest {
         when(rerankModel.call(any(RerankRequest.class))).thenReturn(new RerankResponse(List.of(
                 scored(target, 0.91)
         )));
-        when(ragUnitMapper.selectBatchIds(anyList())).thenReturn(List.of(matched));
-        when(ragUnitMapper.selectList(any())).thenReturn(List.of(title, matched, next));
+        when(ragUnitQueryRepository.selectByIds(anyList())).thenReturn(List.of(matched));
+        when(ragUnitQueryRepository.selectNeighborLeaves(any(), any(int.class), any(int.class))).thenReturn(List.of(title, matched, next));
 
         RetrievalResult result = ragRetrievalService.retrieveWithMultiPathRecall(
                 "实验一中第二日问题的目的是什么？",

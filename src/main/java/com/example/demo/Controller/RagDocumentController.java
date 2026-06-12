@@ -9,6 +9,7 @@ import com.example.demo.model.dto.PageResponse;
 import com.example.demo.model.dto.RagDocumentInfo;
 import com.example.demo.service.AuthContextService;
 import com.example.demo.service.RagDocumentApplicationService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/documents")
 @RequiredArgsConstructor
+@Tag(name = "文档管理", description = "文档列表、状态查询和删除")
 public class RagDocumentController {
 
     private final RagDocumentApplicationService ragDocumentApplicationService;
@@ -49,7 +51,8 @@ public class RagDocumentController {
                                                                    @RequestParam(required = false) String keyword,
                                                                    @RequestParam(defaultValue = "createdAt") String sortBy,
                                                                    @RequestParam(defaultValue = "DESC") String sortOrder) {
-        return ragDocumentApplicationService.getDocuments(page, pageSize, authContextService.resolveUserId(userId), sourceType, keyword, sortBy, sortOrder);
+        String safeKeyword = (keyword != null && keyword.length() > 200) ? keyword.substring(0, 200) : keyword;
+        return ragDocumentApplicationService.getDocuments(page, pageSize, authContextService.resolveUserId(userId), sourceType, safeKeyword, sortBy, sortOrder);
     }
 
     /**

@@ -1,8 +1,6 @@
 package com.example.demo.Controller;
 
 import com.example.demo.Config.DateTimeTools;
-import com.example.demo.Config.SessionManager;
-import com.example.demo.Config.SummaryWindowChatMemory;
 import com.example.demo.model.dto.SessionDeleteRequest;
 import com.example.demo.model.dto.HierarchyHit;
 import com.example.demo.model.dto.MultiTurnChatRequest;
@@ -10,6 +8,7 @@ import com.example.demo.model.dto.RetrievalResult;
 import com.example.demo.service.AiService;
 import com.example.demo.service.AuthContextService;
 import com.example.demo.service.AsrService;
+import com.example.demo.service.ChatSessionService;
 import com.example.demo.service.QueryRewriteService;
 import com.example.demo.service.RagRetrievalService;
 import com.example.demo.service.RetrievalSubQueryService;
@@ -56,10 +55,7 @@ class AiControllerTest {
     private DateTimeTools dateTimeTools;
 
     @Mock
-    private SummaryWindowChatMemory chatMemory;
-
-    @Mock
-    private SessionManager sessionManager;
+    private ChatSessionService chatSessionService;
 
     @Mock
     private AuthContextService authContextService;
@@ -73,8 +69,7 @@ class AiControllerTest {
         request.setSessionId("s1");
         request.setMessage("它有哪些依赖");
 
-        when(sessionManager.sessionExists("s1")).thenReturn(true);
-        when(sessionManager.getUserIdBySession("s1")).thenReturn("u1");
+        when(chatSessionService.requireActiveSessionUser("s1")).thenReturn("u1");
         when(queryRewriteService.rewrite("s1", "它有哪些依赖")).thenReturn("RagUnitService有哪些依赖");
         when(retrievalSubQueryService.generateSubQueries("RagUnitService有哪些依赖", "它有哪些依赖"))
                 .thenReturn(List.of("RagUnitService有哪些依赖", "RagUnitService依赖注入", "它有哪些依赖"));
@@ -90,8 +85,7 @@ class AiControllerTest {
                 retrievalSubQueryService,
                 userProfileService,
                 dateTimeTools,
-                chatMemory,
-                sessionManager
+                chatSessionService
         );
         AiController controller = new AiController(
                 aiService,
@@ -117,11 +111,11 @@ class AiControllerTest {
         SessionDeleteRequest request = new SessionDeleteRequest();
         request.setUserId("u1");
         request.setSessionId("s1");
-        Message historyMessage = org.mockito.Mockito.mock(Message.class);
-        List<Message> history = List.of(historyMessage);
 
-        when(sessionManager.getUserIdBySession("s1")).thenReturn("u1");
-        when(chatMemory.getFullHistory("s1")).thenReturn(history);
+        com.example.demo.model.dto.SessionDeleteResponse deleteResponse =
+                new com.example.demo.model.dto.SessionDeleteResponse("s1", System.currentTimeMillis(), "ok");
+        when(chatSessionService.deleteSession(request))
+                .thenReturn(com.example.demo.model.dto.ApiResponse.success(deleteResponse));
 
         AiService aiService = new AiService(
                 deepchatClient,
@@ -130,16 +124,14 @@ class AiControllerTest {
                 retrievalSubQueryService,
                 userProfileService,
                 dateTimeTools,
-                chatMemory,
-                sessionManager
+                chatSessionService
         );
         when(authContextService.resolveUserId("u1")).thenReturn("u1");
         AiController controller = new AiController(aiService, authContextService, asrService);
 
         controller.deleteSession(request);
 
-        verify(userProfileService).extractProfileAsync("u1", history);
-        verify(sessionManager).deleteSession("u1", "s1");
+        verify(chatSessionService).deleteSession(request);
     }
 
     @Test
@@ -149,8 +141,7 @@ class AiControllerTest {
         request.setUserId("u1");
         request.setMessage("总结文档");
 
-        when(sessionManager.sessionExists("s1")).thenReturn(true);
-        when(sessionManager.getUserIdBySession("s1")).thenReturn("u1");
+        when(chatSessionService.requireActiveSessionUser("s1")).thenReturn("u1");
         when(queryRewriteService.rewrite("s1", "总结文档")).thenReturn("总结文档");
         when(retrievalSubQueryService.generateSubQueries("总结文档", "总结文档")).thenReturn(List.of("总结文档"));
         when(ragRetrievalService.retrieveWithMultiPathRecall(eq("总结文档"), anyList(), eq("u1")))
@@ -176,8 +167,7 @@ class AiControllerTest {
                 retrievalSubQueryService,
                 userProfileService,
                 dateTimeTools,
-                chatMemory,
-                sessionManager
+                chatSessionService
         );
 
         List<ServerSentEvent<String>> events = aiService.multiTurnChat(request).collectList().block();

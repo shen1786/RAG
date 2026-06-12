@@ -5,11 +5,7 @@ import com.example.demo.mapper.RagUnitMapper;
 import com.example.demo.model.RagNodeType;
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.SourceType;
-import com.example.demo.service.processor.ImageProcessor;
-import com.example.demo.service.processor.PowerPointProcessor;
-import com.example.demo.service.processor.TabularProcessor;
-import com.example.demo.service.processor.TextProcessor;
-import com.example.demo.service.processor.VideoProcessor;
+import com.example.demo.service.processor.MediaProcessorRegistry;
 import org.apache.ibatis.session.ExecutorType;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -54,25 +50,7 @@ class RagUnitServiceVectorWriteTest {
     private VectorStore summaryVectorStore;
 
     @Mock
-    private TextProcessor textProcessor;
-
-    @Mock
-    private ImageProcessor imageProcessor;
-
-    @Mock
-    private VideoProcessor videoProcessor;
-
-    @Mock
-    private PowerPointProcessor powerPointProcessor;
-
-    @Mock
-    private com.example.demo.service.processor.PdfProcessor pdfProcessor;
-
-    @Mock
-    private com.example.demo.service.processor.WordProcessor wordProcessor;
-
-    @Mock
-    private TabularProcessor tabularProcessor;
+    private MediaProcessorRegistry processorRegistry;
 
     @Mock
     private FileProcessProducer fileProcessProducer;
@@ -96,13 +74,7 @@ class RagUnitServiceVectorWriteTest {
                 uploadService,
                 leafVectorStore,
                 summaryVectorStore,
-                textProcessor,
-                imageProcessor,
-                videoProcessor,
-                powerPointProcessor,
-                pdfProcessor,
-                wordProcessor,
-                tabularProcessor,
+                processorRegistry,
                 fileProcessProducer,
                 documentFileService,
                 documentDeleteService,

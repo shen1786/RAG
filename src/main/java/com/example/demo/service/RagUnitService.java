@@ -15,12 +15,8 @@ import com.example.demo.model.dto.PageRequest;
 import com.example.demo.model.dto.PageResponse;
 import com.example.demo.model.dto.RagDocumentInfo;
 import com.example.demo.model.dto.UploadResponse;
-import com.example.demo.service.processor.ImageProcessor;
 import com.example.demo.service.processor.MediaProcessor;
-import com.example.demo.service.processor.PowerPointProcessor;
-import com.example.demo.service.processor.TabularProcessor;
-import com.example.demo.service.processor.TextProcessor;
-import com.example.demo.service.processor.VideoProcessor;
+import com.example.demo.service.processor.MediaProcessorRegistry;
 import com.example.demo.util.HashUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.session.ExecutorType;
@@ -58,13 +54,7 @@ public class RagUnitService {
     private final UploadService uploadService;
     private final VectorStore leafVectorStore;
     private final VectorStore summaryVectorStore;
-    private final TextProcessor textProcessor;
-    private final ImageProcessor imageProcessor;
-    private final VideoProcessor videoProcessor;
-    private final PowerPointProcessor powerPointProcessor;
-    private final com.example.demo.service.processor.PdfProcessor pdfProcessor;
-    private final com.example.demo.service.processor.WordProcessor wordProcessor;
-    private final TabularProcessor tabularProcessor;
+    private final MediaProcessorRegistry processorRegistry;
     private final FileProcessProducer fileProcessProducer;
     private final DocumentFileService documentFileService;
     private final DocumentDeleteService documentDeleteService;
@@ -76,13 +66,7 @@ public class RagUnitService {
                           UploadService uploadService,
                           @Qualifier("leafVectorStore") VectorStore leafVectorStore,
                           @Qualifier("summaryVectorStore") VectorStore summaryVectorStore,
-                          TextProcessor textProcessor,
-                          ImageProcessor imageProcessor,
-                          VideoProcessor videoProcessor,
-                          PowerPointProcessor powerPointProcessor,
-                          com.example.demo.service.processor.PdfProcessor pdfProcessor,
-                          com.example.demo.service.processor.WordProcessor wordProcessor,
-                          TabularProcessor tabularProcessor,
+                          MediaProcessorRegistry processorRegistry,
                           FileProcessProducer fileProcessProducer,
                           DocumentFileService documentFileService,
                           DocumentDeleteService documentDeleteService,
@@ -92,13 +76,7 @@ public class RagUnitService {
         this.uploadService = uploadService;
         this.leafVectorStore = leafVectorStore;
         this.summaryVectorStore = summaryVectorStore;
-        this.textProcessor = textProcessor;
-        this.imageProcessor = imageProcessor;
-        this.videoProcessor = videoProcessor;
-        this.powerPointProcessor = powerPointProcessor;
-        this.pdfProcessor = pdfProcessor;
-        this.wordProcessor = wordProcessor;
-        this.tabularProcessor = tabularProcessor;
+        this.processorRegistry = processorRegistry;
         this.fileProcessProducer = fileProcessProducer;
         this.documentFileService = documentFileService;
         this.documentDeleteService = documentDeleteService;
@@ -286,31 +264,7 @@ public class RagUnitService {
     }
 
     public MediaProcessor findProcessorByMimeType(String mimeType) {
-        if (mimeType == null || mimeType.isBlank()) {
-            return null;
-        }
-        if (powerPointProcessor.supports(mimeType)) {
-            return powerPointProcessor;
-        }
-        if (pdfProcessor.supports(mimeType)) {
-            return pdfProcessor;
-        }
-        if (wordProcessor.supports(mimeType)) {
-            return wordProcessor;
-        }
-        if (tabularProcessor.supports(mimeType)) {
-            return tabularProcessor;
-        }
-        if (textProcessor.supports(mimeType)) {
-            return textProcessor;
-        }
-        if (imageProcessor.supports(mimeType)) {
-            return imageProcessor;
-        }
-        if (videoProcessor.supports(mimeType)) {
-            return videoProcessor;
-        }
-        return null;
+        return processorRegistry.findByMimeType(mimeType);
     }
 
     public String deleteDocumentAsync(String userId, String fileHash) {

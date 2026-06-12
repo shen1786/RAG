@@ -6,6 +6,7 @@ import com.example.demo.model.dto.*;
 import com.example.demo.service.AiService;
 import com.example.demo.service.AuthContextService;
 import com.example.demo.service.AsrService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -25,6 +26,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/ai")
 @RequiredArgsConstructor
+@Tag(name = "AI 对话", description = "单轮/多轮对话、会话管理、语音识别")
 public class AiController {
     private final AiService aiService;
     private final AuthContextService authContextService;
@@ -33,6 +35,12 @@ public class AiController {
     @SaCheckPermission("ai:chat")
     @GetMapping(value = "/chatmemory/chat", produces = "text/plain;charset=UTF-8")
     public String chat(String msg, String userId) {
+        if (msg == null || msg.isBlank()) {
+            return "请输入问题";
+        }
+        if (msg.length() > 4000) {
+            return "问题过长，请缩短后重试";
+        }
         return aiService.chat(msg, authContextService.resolveUserId(userId));
     }
 

@@ -4,14 +4,13 @@ import com.alibaba.cloud.ai.document.DocumentWithScore;
 import com.alibaba.cloud.ai.model.RerankModel;
 import com.alibaba.cloud.ai.model.RerankRequest;
 import com.alibaba.cloud.ai.model.RerankResponse;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.demo.Config.HierarchyConfig;
-import com.example.demo.mapper.RagUnitMapper;
 import com.example.demo.model.RagNodeType;
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.dto.HierarchyHit;
 import com.example.demo.model.dto.RetrievalMode;
 import com.example.demo.model.dto.RetrievalResult;
+import com.example.demo.repository.RagUnitQueryRepository;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -45,7 +44,7 @@ public class RagRetrievalService {
     private final VectorStore leafVectorStore;
     private final VectorStore summaryVectorStore;
     private final RerankModel rerankModel;
-    private final RagUnitMapper ragUnitMapper;
+    private final RagUnitQueryRepository ragUnitQueryRepository;
     private final RagUnitService ragUnitService;
     private final HierarchyConfig hierarchyConfig;
     private final Executor retrievalTaskExecutor;
@@ -65,14 +64,14 @@ public class RagRetrievalService {
     public RagRetrievalService(@Qualifier("leafVectorStore") VectorStore leafVectorStore,
                                @Qualifier("summaryVectorStore") VectorStore summaryVectorStore,
                                RerankModel rerankModel,
-                               RagUnitMapper ragUnitMapper,
+                               RagUnitQueryRepository ragUnitQueryRepository,
                                RagUnitService ragUnitService,
                                HierarchyConfig hierarchyConfig,
                                @Qualifier("mvcTaskExecutor") Executor retrievalTaskExecutor) {
         this.leafVectorStore = leafVectorStore;
         this.summaryVectorStore = summaryVectorStore;
         this.rerankModel = rerankModel;
-        this.ragUnitMapper = ragUnitMapper;
+        this.ragUnitQueryRepository = ragUnitQueryRepository;
         this.ragUnitService = ragUnitService;
         this.hierarchyConfig = hierarchyConfig;
         this.retrievalTaskExecutor = retrievalTaskExecutor;
@@ -452,40 +451,11 @@ public class RagRetrievalService {
     }
 
     private List<RagUnit> selectNeighborLeaves(RagUnit leaf) {
-        if (leaf.getSourceId() == null || leaf.getChunkIndex() == null) {
-            return List.of(leaf);
-        }
-
-        int start = Math.max(0, leaf.getChunkIndex() - CONTEXT_NEIGHBOR_BEFORE);
-        int end = leaf.getChunkIndex() + CONTEXT_NEIGHBOR_AFTER;
-        QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
-        wrapper.eq("source_id", leaf.getSourceId())
-                .eq(leaf.getUserId() != null && !leaf.getUserId().isBlank(), "user_id", leaf.getUserId())
-                .and(group -> group
-                        .eq("node_type", RagNodeType.LEAF.name())
-                        .or()
-                        .isNull("node_type"))
-                .between("chunk_index", start, end)
-                .orderByAsc("chunk_index");
-
-        List<RagUnit> neighbors = ragUnitMapper.selectList(wrapper);
-        if (neighbors == null || neighbors.isEmpty()) {
-            return List.of(leaf);
-        }
-        return neighbors;
+        return ragUnitQueryRepository.selectNeighborLeaves(leaf, CONTEXT_NEIGHBOR_BEFORE, CONTEXT_NEIGHBOR_AFTER);
     }
 
     private Map<String, RagUnit> selectParentSections(Collection<RagUnit> units) {
-        Set<String> parentIds = new LinkedHashSet<>();
-        for (RagUnit unit : units) {
-            if (unit.getParentId() != null && !unit.getParentId().isBlank()) {
-                parentIds.add(unit.getParentId());
-            }
-        }
-        if (parentIds.isEmpty()) {
-            return Map.of();
-        }
-        return toUnitMap(selectUnitsByIds(new ArrayList<>(parentIds)));
+        return ragUnitQueryRepository.selectParentSections(units);
     }
 
     private String formatKnowledgeUnit(RagUnit unit, RagUnit parentSection) {
@@ -553,21 +523,7 @@ public class RagRetrievalService {
     }
 
     private List<RagUnit> searchLeafUnitsByKeyword(String keyword, String userId) {
-        QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
-        wrapper.and(group -> group
-                        .eq("node_type", RagNodeType.LEAF.name())
-                        .or()
-                        .isNull("node_type"))
-                .eq(userId != null && !userId.isBlank(), "user_id", userId)
-                .and(group -> group
-                        .like("title", keyword)
-                        .or()
-                        .like("content", keyword)
-                        .or()
-                        .like("filename", keyword))
-                .orderByAsc("chunk_index")
-                .last("LIMIT " + Math.max(candidateTopK, 1));
-        return ragUnitMapper.selectList(wrapper);
+        return ragUnitQueryRepository.searchLeafUnitsByKeyword(keyword, userId, candidateTopK);
     }
 
     private List<String> normalizeQueries(String primaryQuery, List<String> recallQueries) {
@@ -681,34 +637,15 @@ public class RagRetrievalService {
     }
 
     private List<RagUnit> selectUnitsByIds(List<String> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return List.of();
-        }
-        return ragUnitMapper.selectBatchIds(ids);
+        return ragUnitQueryRepository.selectByIds(ids);
     }
 
     private List<RagUnit> selectChildrenByParentIds(String userId, Collection<String> parentIds, RagNodeType nodeType) {
-        if (parentIds == null || parentIds.isEmpty()) {
-            return List.of();
-        }
-        QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
-        wrapper.in("parent_id", parentIds)
-                .eq("node_type", nodeType.name())
-                .eq(userId != null && !userId.isBlank(), "user_id", userId)
-                .orderByAsc("ordinal")
-                .orderByAsc("chunk_index");
-        return ragUnitMapper.selectList(wrapper);
+        return ragUnitQueryRepository.selectChildrenByParentIds(userId, parentIds, nodeType);
     }
 
     private Map<String, RagUnit> toUnitMap(List<RagUnit> units) {
-        if (units == null || units.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        Map<String, RagUnit> map = new HashMap<>();
-        for (RagUnit unit : units) {
-            map.put(unit.getId(), unit);
-        }
-        return map;
+        return RagUnitQueryRepository.toUnitMap(units);
     }
 
     private List<String> extractIds(List<Document> documents) {

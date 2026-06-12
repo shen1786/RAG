@@ -96,7 +96,7 @@ public class UserProfileService {
      * @param userId  用户 ID
      * @param history 预先读取好的对话历史消息列表
      */
-    @Async("mvcTaskExecutor")
+    @Async("asyncTaskExecutor")
     public void extractProfileAsync(String userId, List<Message> history) {
         try {
             log.info("开始为用户 {} 提炼画像，对话消息数: {}", userId, history.size());

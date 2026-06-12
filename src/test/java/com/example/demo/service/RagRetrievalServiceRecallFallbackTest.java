@@ -5,12 +5,12 @@ import com.alibaba.cloud.ai.model.RerankModel;
 import com.alibaba.cloud.ai.model.RerankRequest;
 import com.alibaba.cloud.ai.model.RerankResponse;
 import com.example.demo.Config.HierarchyConfig;
-import com.example.demo.mapper.RagUnitMapper;
 import com.example.demo.model.RagNodeType;
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.SourceType;
 import com.example.demo.model.dto.RetrievalMode;
 import com.example.demo.model.dto.RetrievalResult;
+import com.example.demo.repository.RagUnitQueryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,7 +48,7 @@ class RagRetrievalServiceRecallFallbackTest {
     private RerankModel rerankModel;
 
     @Mock
-    private RagUnitMapper ragUnitMapper;
+    private RagUnitQueryRepository ragUnitQueryRepository;
 
     @Mock
     private RagUnitService ragUnitService;
@@ -66,7 +66,7 @@ class RagRetrievalServiceRecallFallbackTest {
                 leafVectorStore,
                 summaryVectorStore,
                 rerankModel,
-                ragUnitMapper,
+                ragUnitQueryRepository,
                 ragUnitService,
                 hierarchyConfig,
                 Runnable::run
@@ -95,8 +95,8 @@ class RagRetrievalServiceRecallFallbackTest {
 
         when(summaryVectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
         when(leafVectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
-        when(ragUnitMapper.selectList(any())).thenReturn(List.of(keywordUnit));
-        when(ragUnitMapper.selectBatchIds(anyList())).thenReturn(List.of(keywordUnit));
+        when(ragUnitQueryRepository.searchLeafUnitsByKeyword(any(), any(), any(int.class))).thenReturn(List.of(keywordUnit));
+        when(ragUnitQueryRepository.selectByIds(anyList())).thenReturn(List.of(keywordUnit));
         when(ragUnitService.buildVectorMetadata(any(RagUnit.class), any(String.class)))
                 .thenReturn(Map.of("user_id", "u1"));
         when(rerankModel.call(any(RerankRequest.class))).thenReturn(new RerankResponse(List.of(
@@ -109,7 +109,7 @@ class RagRetrievalServiceRecallFallbackTest {
                 "u1"
         );
 
-        verify(ragUnitMapper, atLeastOnce()).selectList(any());
+        verify(ragUnitQueryRepository, atLeastOnce()).searchLeafUnitsByKeyword(any(), any(), any(int.class));
         verify(rerankModel).call(any(RerankRequest.class));
 
         assertTrue(result.isHit());
