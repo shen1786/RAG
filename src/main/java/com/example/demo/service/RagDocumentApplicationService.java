@@ -7,12 +7,18 @@ import com.example.demo.model.dto.DocumentFileStatusResponse;
 import com.example.demo.model.dto.PageRequest;
 import com.example.demo.model.dto.PageResponse;
 import com.example.demo.model.dto.RagDocumentInfo;
+import com.example.demo.util.HashUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class RagDocumentApplicationService {
+
+    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of("createdAt", "updatedAt");
+    private static final Set<String> ALLOWED_SORT_ORDERS = Set.of("ASC", "DESC");
 
     private final RagUnitService ragUnitService;
     private final DocumentDeleteService documentDeleteService;
@@ -32,14 +38,18 @@ public class RagDocumentApplicationService {
         }
 
         try {
+            String safeSortBy = ALLOWED_SORT_FIELDS.contains(sortBy) ? sortBy : "createdAt";
+            String safeSortOrder = (sortOrder != null && ALLOWED_SORT_ORDERS.contains(sortOrder.toUpperCase()))
+                    ? sortOrder.toUpperCase() : "DESC";
+
             PageRequest request = new PageRequest();
             request.setPage(page);
             request.setPageSize(pageSize);
             request.setUserId(userId);
             request.setSourceType(sourceType);
             request.setKeyword(keyword);
-            request.setSortBy(sortBy);
-            request.setSortOrder(sortOrder);
+            request.setSortBy(safeSortBy);
+            request.setSortOrder(safeSortOrder);
             return ApiResponse.success("查询成功", ragUnitService.getDocumentsPage(request));
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -125,7 +135,7 @@ public class RagDocumentApplicationService {
     }
 
     private boolean isValidSha256(String fileHash) {
-        return fileHash != null && fileHash.matches("^[a-fA-F0-9]{64}$");
+        return HashUtils.isValidSha256(fileHash);
     }
 
     private boolean containsNotFoundMessage(RuntimeException exception) {

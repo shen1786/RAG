@@ -18,6 +18,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
@@ -33,11 +36,16 @@ public class HierarchySummaryService {
     private final AtomicLong summaryFallbackUntilEpochMs = new AtomicLong(0L);
     private final int summaryTimeoutSeconds;
     private final int summaryFailureCooldownSeconds;
-    private final ExecutorService summaryExecutor = Executors.newCachedThreadPool(runnable -> {
-        Thread thread = new Thread(runnable, "hierarchy-summary");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ExecutorService summaryExecutor = new ThreadPoolExecutor(
+            2, 8, 60L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(100),
+            runnable -> {
+                Thread thread = new Thread(runnable, "hierarchy-summary");
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.CallerRunsPolicy()
+    );
 
     public HierarchySummaryService(@Qualifier("summaryChatClient") ChatClient summaryChatClient,
                                    ObjectMapper objectMapper,

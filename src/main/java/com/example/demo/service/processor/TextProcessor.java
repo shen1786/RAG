@@ -3,6 +3,7 @@ package com.example.demo.service.processor;
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.SourceType;
 import com.example.demo.service.MarkdownStructureChunker;
+import com.example.demo.util.CharsetUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -81,19 +82,7 @@ public class TextProcessor implements MediaProcessor {
     }
 
     private String readStringWithFallback(byte[] bytes) {
-        try {
-            java.nio.charset.CharsetDecoder decoder = java.nio.charset.StandardCharsets.UTF_8.newDecoder();
-            decoder.onMalformedInput(java.nio.charset.CodingErrorAction.REPORT);
-            decoder.onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
-            java.nio.CharBuffer buffer = decoder.decode(java.nio.ByteBuffer.wrap(bytes));
-            return buffer.toString();
-        } catch (Exception e) {
-            try {
-                return new String(bytes, java.nio.charset.Charset.forName("GB18030"));
-            } catch (Exception ex) {
-                return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-            }
-        }
+        return CharsetUtils.readStringWithFallback(bytes);
     }
 
     private boolean isCsvMimeType(String mimeType) {

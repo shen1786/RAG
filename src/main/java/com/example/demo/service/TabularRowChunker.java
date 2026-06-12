@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.SourceType;
+import com.example.demo.util.CharsetUtils;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -47,19 +48,7 @@ public class TabularRowChunker {
     }
 
     private String readStringWithFallback(byte[] bytes) {
-        try {
-            java.nio.charset.CharsetDecoder decoder = java.nio.charset.StandardCharsets.UTF_8.newDecoder();
-            decoder.onMalformedInput(java.nio.charset.CodingErrorAction.REPORT);
-            decoder.onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
-            java.nio.CharBuffer buffer = decoder.decode(java.nio.ByteBuffer.wrap(bytes));
-            return buffer.toString();
-        } catch (Exception e) {
-            try {
-                return new String(bytes, java.nio.charset.Charset.forName("GB18030"));
-            } catch (Exception ex) {
-                return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-            }
-        }
+        return CharsetUtils.readStringWithFallback(bytes);
     }
 
     public List<RagUnit> chunkWorkbook(InputStream input, String filename, SourceType sourceType) {

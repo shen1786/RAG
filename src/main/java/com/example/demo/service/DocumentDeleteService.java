@@ -6,10 +6,12 @@ import com.example.demo.model.DocumentFile;
 import com.example.demo.model.RagUnit;
 import com.example.demo.model.dto.DeleteTaskStatus;
 import com.example.demo.model.dto.FileDeleteTask;
+import com.example.demo.util.HashUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,6 +36,7 @@ public class DocumentDeleteService {
 
     private static final String DELETE_TASK_PREFIX = "delete:task:";
 
+    @Transactional
     public String asyncDeleteDocument(String userId, String fileHash) {
         validateFileHash(fileHash);
 
@@ -99,7 +102,7 @@ public class DocumentDeleteService {
         List<String> taskIds = new ArrayList<>();
         for (String identifier : identifiers) {
             try {
-                if (identifier != null && identifier.matches("^[a-fA-F0-9]{64}$")) {
+                if (identifier != null && HashUtils.isValidSha256(identifier)) {
                     taskIds.add(asyncDeleteDocument(null, identifier));
                 } else {
                     taskIds.add(asyncDeleteDocumentByFilename(null, identifier));
@@ -125,7 +128,7 @@ public class DocumentDeleteService {
         if (fileHash == null || fileHash.trim().isEmpty()) {
             throw new IllegalArgumentException("文件哈希值不能为空");
         }
-        if (!fileHash.matches("^[a-fA-F0-9]{64}$")) {
+        if (!HashUtils.isValidSha256(fileHash)) {
             throw new IllegalArgumentException("无效的 SHA-256 哈希格式");
         }
     }

@@ -32,7 +32,7 @@ public class PasswordRecoveryService {
     @Value("${auth.password-recovery.request-cooldown-seconds:60}")
     private long requestCooldownSeconds;
 
-    @Value("${auth.password-recovery.expose-reset-code:true}")
+    @Value("${auth.password-recovery.expose-reset-code:false}")
     private boolean exposeResetCode;
 
     public PasswordRecoveryService(StringRedisTemplate stringRedisTemplate,

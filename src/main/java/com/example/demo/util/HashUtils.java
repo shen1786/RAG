@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.regex.Pattern;
 
 /**
  * SHA-256 哈希计算工具类，支持流式读取和文件读取。
@@ -16,7 +17,19 @@ public final class HashUtils {
 
     private static final int BUFFER_SIZE = 8192;
 
+    private static final Pattern SHA256_PATTERN = Pattern.compile("^[a-fA-F0-9]{64}$");
+
     private HashUtils() {
+    }
+
+    /**
+     * 校验字符串是否为合法的 SHA-256 十六进制格式（64 位 hex）。
+     *
+     * @param hash 待校验字符串
+     * @return true 表示格式合法
+     */
+    public static boolean isValidSha256(String hash) {
+        return hash != null && SHA256_PATTERN.matcher(hash).matches();
     }
 
     /**

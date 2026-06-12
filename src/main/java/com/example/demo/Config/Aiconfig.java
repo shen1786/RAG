@@ -1,4 +1,4 @@
-﻿package com.example.demo.Config;
+package com.example.demo.Config;
 
 import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
