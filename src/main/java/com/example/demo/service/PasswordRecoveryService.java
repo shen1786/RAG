@@ -90,7 +90,7 @@ public class PasswordRecoveryService {
         String normalizedUsername = authAccountService.normalizeUsername(request.getUsername());
         String code = request.getResetCode();
         if (code == null || code.isBlank()) {
-            throw new IllegalArgumentException("重置码不能为空");
+            throw new BusinessException(400, "重置码不能为空");
         }
 
         // 检查是否被锁定（IP + username 维度）
@@ -104,7 +104,7 @@ public class PasswordRecoveryService {
         if (storedHash == null || !passwordEncoder.matches(code.trim(), storedHash)) {
             // 记录失败尝试
             recordFailedAttempt(normalizedUsername, clientIp);
-            throw new IllegalArgumentException("重置码无效或已过期");
+            throw new BusinessException(400, "重置码无效或已过期");
         }
 
         // 验证成功，清除失败计数
