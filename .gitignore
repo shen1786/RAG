@@ -1,2 +1,5 @@
 # 项目排除路径
 /target/
+
+# 本地开发配置（含凭据，不提交）
+src/main/resources/application-dev.yaml
