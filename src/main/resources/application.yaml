@@ -24,6 +24,8 @@ spring:
               ak: ${BAIDU_MAP_AK:your-baidu-map-ak}
     dashscope:
       api-key: ${DASHSCOPE_API_KEY:your-dashscope-api-key}
+      connect-timeout-ms: 10000
+      read-timeout-ms: 60000
       chat:
         options:
           stream: true

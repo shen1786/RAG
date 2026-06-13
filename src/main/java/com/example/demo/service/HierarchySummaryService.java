@@ -31,6 +31,11 @@ import com.example.demo.Config.HierarchyConfig;
 @Slf4j
 public class HierarchySummaryService {
 
+    /** 摘要输入最大字符数，超过则截断（防止单次调用超出模型上下文窗口） */
+    private static final int MAX_INPUT_CHARS = 8000;
+    /** 摘要输出最大 token 数 */
+    private static final int MAX_OUTPUT_TOKENS = 512;
+
     private final ChatClient summaryChatClient;
     private final ObjectMapper objectMapper;
     private final AtomicLong summaryFallbackUntilEpochMs = new AtomicLong(0L);
@@ -93,6 +98,12 @@ public class HierarchySummaryService {
             return fallback(normalizedContent, fallbackTitle);
         }
 
+        // 输入截断：防止单次调用超出模型上下文窗口
+        if (normalizedContent.length() > MAX_INPUT_CHARS) {
+            log.info("摘要输入超过 {} 字符，截断: 原始长度={}", MAX_INPUT_CHARS, normalizedContent.length());
+            normalizedContent = normalizedContent.substring(0, MAX_INPUT_CHARS);
+        }
+
         // 这里强约束模型只返回 JSON，避免自然语言说明影响解析。
         String prompt = """
                 %s
@@ -111,6 +122,7 @@ public class HierarchySummaryService {
             Future<String> summaryFuture = summaryExecutor.submit(() ->
                     summaryChatClient.prompt()
                             .user(prompt)
+                            .advisors(a -> a.param("maxTokens", MAX_OUTPUT_TOKENS))
                             .call()
                             .content()
             );

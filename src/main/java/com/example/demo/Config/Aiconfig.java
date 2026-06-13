@@ -20,16 +20,29 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestClient;
 
 @Configuration
 public class Aiconfig {
     @Value("${spring.ai.dashscope.api-key}")
     private String API_KEY;
 
+    @Value("${spring.ai.dashscope.connect-timeout-ms:10000}")
+    private int connectTimeoutMs;
+
+    @Value("${spring.ai.dashscope.read-timeout-ms:60000}")
+    private int readTimeoutMs;
+
     @Bean
     public DashScopeApi dashScopeApi() {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(connectTimeoutMs);
+        requestFactory.setReadTimeout(readTimeoutMs);
+
         return DashScopeApi.builder()
                 .apiKey(API_KEY)
+                .restClientBuilder(RestClient.builder().requestFactory(requestFactory))
                 .build();
     }
     @Bean(name = "qwen")
