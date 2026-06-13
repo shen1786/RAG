@@ -44,6 +44,22 @@ public class RagUnitService {
 
     private static final int DB_BATCH_FLUSH_SIZE = 500;
 
+    // Allowed MIME types for file upload
+    private static final Set<String> ALLOWED_MIME_TYPES = Set.of(
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/plain", "text/markdown", "text/html", "text/csv",
+            "application/json", "application/xml", "application/yaml", "application/x-yaml",
+            "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+            "video/mp4", "video/webm", "video/quicktime",
+            "application/mp4"
+    );
+
     private final RagUnitMapper ragUnitMapper;
     private final SqlSessionFactory sqlSessionFactory;
     private final UploadService uploadService;
@@ -188,6 +204,7 @@ public class RagUnitService {
         String serverFileHash;
         try (DigestInputStream dis = HashUtils.wrapWithDigest(file.getInputStream())) {
             mimeType = tika.detect(dis, filename);
+            validateMimeType(mimeType);
             serverFileHash = HashUtils.extractHex(dis);
         }
 
@@ -460,6 +477,12 @@ public class RagUnitService {
             return "文件处理失败";
         }
         return e.getMessage();
+    }
+
+    private void validateMimeType(String mimeType) {
+        if (mimeType == null || !ALLOWED_MIME_TYPES.contains(mimeType)) {
+            throw new IllegalArgumentException("不支持的文件类型: " + mimeType);
+        }
     }
 
     private SourceType determineSourceType(String mimeType) {

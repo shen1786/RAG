@@ -4,6 +4,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskDecorator;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import java.util.concurrent.ThreadPoolExecutor;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.servlet.config.annotation.AsyncSupportConfigurer;
@@ -14,6 +15,12 @@ import java.util.List;
 
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
+
+    private static final int MVC_CORE_POOL_SIZE = 10;
+    private static final int MVC_MAX_POOL_SIZE = 100;
+    private static final int MVC_QUEUE_CAPACITY = 200;
+    private static final int MVC_AWAIT_TERMINATION_SECONDS = 30;
+    private static final int CORS_MAX_AGE = 3600;
 
     private final CorsProperties corsProperties;
 
@@ -32,13 +39,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true)
-                .maxAge(3600);
+                .maxAge(CORS_MAX_AGE);
     }
 
     @Override
     public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
         configurer.setTaskExecutor(mvcTaskExecutor());
-        // configurer.setDefaultTimeout(30000); // optional timeout
     }
 
     @Bean
@@ -68,10 +74,13 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Bean
     public ThreadPoolTaskExecutor mvcTaskExecutor() {
         ThreadPoolTaskExecutor threadPoolTaskExecutor = new ThreadPoolTaskExecutor();
-        threadPoolTaskExecutor.setCorePoolSize(10);
-        threadPoolTaskExecutor.setMaxPoolSize(100);
-        threadPoolTaskExecutor.setQueueCapacity(200);
+        threadPoolTaskExecutor.setCorePoolSize(MVC_CORE_POOL_SIZE);
+        threadPoolTaskExecutor.setMaxPoolSize(MVC_MAX_POOL_SIZE);
+        threadPoolTaskExecutor.setQueueCapacity(MVC_QUEUE_CAPACITY);
         threadPoolTaskExecutor.setThreadNamePrefix("mvc-async-");
+        threadPoolTaskExecutor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        threadPoolTaskExecutor.setWaitForTasksToCompleteOnShutdown(true);
+        threadPoolTaskExecutor.setAwaitTerminationSeconds(MVC_AWAIT_TERMINATION_SECONDS);
         threadPoolTaskExecutor.setTaskDecorator(requestContextTaskDecorator());
         threadPoolTaskExecutor.initialize();
         return threadPoolTaskExecutor;

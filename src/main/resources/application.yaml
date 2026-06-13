@@ -7,6 +7,9 @@ server:
 spring:
   application:
     name: demo
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
   ai:
     mcp:
       client:
@@ -224,3 +227,16 @@ resilience4j:
         cancel-running-future: false
 
 
+
+# Actuator health checks
+management:
+  endpoint:
+    health:
+      show-details: always
+  health:
+    db:
+      enabled: true
+    redis:
+      enabled: true
+    rabbit:
+      enabled: true

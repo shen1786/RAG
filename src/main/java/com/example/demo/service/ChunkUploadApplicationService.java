@@ -19,6 +19,9 @@ import java.util.HashSet;
 @RequiredArgsConstructor
 public class ChunkUploadApplicationService {
 
+    private static final long MAX_CHUNK_SIZE_BYTES = 100L * 1024 * 1024;
+    private static final long MAX_TOTAL_UPLOAD_SIZE_BYTES = 2L * 1024 * 1024 * 1024;
+
     private final ChunkUploadService chunkUploadService;
     private final RagUnitService ragUnitService;
 
@@ -29,6 +32,9 @@ public class ChunkUploadApplicationService {
                                                               Integer totalChunks) {
         if (!isValidSha256(fileHash)) {
             return ApiResponse.validationError("无效的 SHA-256 哈希值");
+        }
+        if (fileSize != null && fileSize > MAX_TOTAL_UPLOAD_SIZE_BYTES) {
+            return ApiResponse.validationError("文件总大小超过限制（最大 2GB）");
         }
 
         try {
@@ -69,6 +75,9 @@ public class ChunkUploadApplicationService {
         }
         if (chunk == null || chunk.isEmpty()) {
             return ApiResponse.validationError("分片文件不能为空");
+        }
+        if (chunk.getSize() > MAX_CHUNK_SIZE_BYTES) {
+            return ApiResponse.validationError("分片大小超过限制（最大 100MB）");
         }
 
         try {
