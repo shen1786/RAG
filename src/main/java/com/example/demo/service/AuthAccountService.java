@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.demo.mapper.AuthRoleMapper;
 import com.example.demo.mapper.AuthUserMapper;
 import com.example.demo.mapper.AuthUserRoleMapper;
+import com.example.demo.exception.BusinessException;
 import com.example.demo.model.auth.AuthRole;
 import com.example.demo.model.auth.AuthUser;
 import com.example.demo.model.auth.AuthUserRole;
@@ -77,10 +78,10 @@ public class AuthAccountService {
         validatePassword(password);
         AuthUser user = authUserMapper.selectByUsername(normalizedUsername);
         if (user == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
-            throw new IllegalArgumentException("用户名或密码错误");
+            throw new BusinessException(401, "用户名或密码错误");
         }
         if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
-            throw new IllegalStateException("账号已被禁用");
+            throw new BusinessException(403, "账号已被禁用");
         }
         return user;
     }
@@ -92,10 +93,10 @@ public class AuthAccountService {
         }
         validateNewPassword(newPassword, confirmNewPassword);
         if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
-            throw new IllegalArgumentException("当前密码错误");
+            throw new BusinessException(400, "当前密码错误");
         }
         if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
-            throw new IllegalArgumentException("新密码不能与当前密码相同");
+            throw new BusinessException(400, "新密码不能与当前密码相同");
         }
         updatePasswordHash(user, newPassword);
     }
@@ -110,10 +111,10 @@ public class AuthAccountService {
             String currentUserId = cn.dev33.satoken.stp.StpUtil.getLoginIdAsString();
             List<String> roles = authPermissionService.getRoleList(currentUserId, "login");
             if (!roles.contains("admin")) {
-                throw new IllegalArgumentException("仅管理员可重置他人密码");
+                throw new BusinessException(403, "仅管理员可重置他人密码");
             }
         } catch (cn.dev33.satoken.exception.NotLoginException e) {
-            throw new IllegalArgumentException("未登录，无法执行密码重置");
+            throw new BusinessException(401, "未登录，无法执行密码重置");
         }
 
         updatePasswordHash(user, newPassword);

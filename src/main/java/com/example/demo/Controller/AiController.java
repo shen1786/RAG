@@ -9,6 +9,7 @@ import com.example.demo.service.AsrService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,6 +24,7 @@ import reactor.core.publisher.Flux;
 import java.io.InputStream;
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/ai")
 @RequiredArgsConstructor
@@ -120,6 +122,9 @@ public class AiController {
         try (InputStream in = file.getInputStream()) {
             String text = asrService.transcribe(in);
             return ApiResponse.success("识别成功", text);
+        } catch (com.example.demo.exception.AsrUnavailableException e) {
+            log.warn("ASR 服务不可用: {}", e.getMessage());
+            return ApiResponse.error(503, "语音识别服务暂不可用，请稍后重试");
         } catch (Exception e) {
             return ApiResponse.error("语音识别失败: " + e.getMessage());
         }

@@ -8,6 +8,7 @@ import com.alibaba.nls.client.protocol.asr.SpeechTranscriber;
 import com.alibaba.nls.client.protocol.asr.SpeechTranscriberListener;
 import com.alibaba.nls.client.protocol.asr.SpeechTranscriberResponse;
 import com.example.demo.Config.AliyunAsrConfig;
+import com.example.demo.exception.AsrUnavailableException;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,7 @@ public class AsrService {
 
     private volatile NlsClient nlsClient;
     private String accessToken;
+    private volatile boolean configured = false;
 
     @PostConstruct
     public void init() {
@@ -38,6 +40,7 @@ public class AsrService {
                 token.apply();
                 this.accessToken = token.getToken();
                 this.nlsClient = new NlsClient(accessToken);
+                this.configured = true;
                 log.info("阿里云 ASR 客户端初始化成功");
             } else {
                 log.warn("未配置阿里云 ASR 凭证，ASR 语音识别服务将不可用");
@@ -58,10 +61,16 @@ public class AsrService {
         return transcribeWithRetry(audioStream, 2); // 最多重试2次
     }
 
+    /**
+     * 判断 ASR 服务是否可用。
+     */
+    public boolean isAvailable() {
+        return configured && nlsClient != null;
+    }
+
     private String transcribeWithRetry(InputStream audioStream, int maxRetries) {
-        if (nlsClient == null) {
-            log.warn("ASR 客户端未初始化，返回空识别文本");
-            return "";
+        if (!configured || nlsClient == null) {
+            throw new AsrUnavailableException("ASR 语音识别服务未配置或初始化失败");
         }
 
         // 将流读入内存以便重试
@@ -70,7 +79,7 @@ public class AsrService {
             audioData = audioStream.readAllBytes();
         } catch (Exception e) {
             log.error("读取音频流失败", e);
-            return "";
+            throw new AsrUnavailableException("读取音频流失败", e);
         }
 
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
@@ -85,7 +94,7 @@ public class AsrService {
         }
 
         log.warn("ASR 语音识别在重试 {} 次后仍失败", maxRetries);
-        return "";
+        throw new AsrUnavailableException("ASR 语音识别失败，已重试 " + maxRetries + " 次");
     }
 
     private String doTranscribe(InputStream audioStream) {

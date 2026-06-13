@@ -95,8 +95,8 @@ public class AuthApplicationService {
         );
     }
 
-    public ApiResponse<String> confirmForgotPassword(ForgotPasswordConfirmRequest request) {
-        String targetUserId = passwordRecoveryService.confirmReset(request);
+    public ApiResponse<String> confirmForgotPassword(ForgotPasswordConfirmRequest request, String clientIp) {
+        String targetUserId = passwordRecoveryService.confirmReset(request, clientIp);
         StpUtil.logout(targetUserId);
         return ApiResponse.success("密码找回成功，请使用新密码登录");
     }

@@ -1,5 +1,6 @@
 package com.example.demo.service;
 
+import com.example.demo.exception.BusinessException;
 import com.example.demo.mapper.AuthRoleMapper;
 import com.example.demo.mapper.AuthUserMapper;
 import com.example.demo.mapper.AuthUserRoleMapper;
@@ -87,7 +88,7 @@ class AuthAccountServiceTest {
 
         authAccountService.changePassword("u-1", "oldSecret1", "newSecret1", "newSecret1");
 
-        assertThrows(IllegalArgumentException.class, () -> authAccountService.authenticate("alice", "oldSecret1"));
+        assertThrows(BusinessException.class, () -> authAccountService.authenticate("alice", "oldSecret1"));
         AuthUser authenticated = authAccountService.authenticate("alice", "newSecret1");
         assertEquals("u-1", authenticated.getId());
     }

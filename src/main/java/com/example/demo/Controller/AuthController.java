@@ -136,7 +136,21 @@ public class AuthController {
      */
     @SaIgnore
     @PostMapping("/password/forgot/confirm")
-    public ApiResponse<String> confirmForgotPassword(@Valid @RequestBody ForgotPasswordConfirmRequest request) {
-        return authApplicationService.confirmForgotPassword(request);
+    public ApiResponse<String> confirmForgotPassword(@Valid @RequestBody ForgotPasswordConfirmRequest request,
+                                                     jakarta.servlet.http.HttpServletRequest httpRequest) {
+        String clientIp = resolveClientIp(httpRequest);
+        return authApplicationService.confirmForgotPassword(request, clientIp);
+    }
+
+    private String resolveClientIp(jakarta.servlet.http.HttpServletRequest request) {
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            return xff.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        return request.getRemoteAddr();
     }
 }

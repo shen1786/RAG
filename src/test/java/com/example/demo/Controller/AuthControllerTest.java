@@ -63,11 +63,14 @@ class AuthControllerTest {
         when(authApplicationService.changePassword(changeRequest)).thenReturn(ApiResponse.success("密码修改成功，请重新登录"));
         when(authApplicationService.adminResetPassword(resetRequest)).thenReturn(ApiResponse.success("密码重置成功"));
         when(authApplicationService.requestPasswordResetCode(forgotRequest)).thenReturn(ApiResponse.success(new PasswordResetCodeResponse("123456", 600)));
-        when(authApplicationService.confirmForgotPassword(confirmRequest)).thenReturn(ApiResponse.success("密码找回成功，请使用新密码登录"));
+        when(authApplicationService.confirmForgotPassword(confirmRequest, "127.0.0.1")).thenReturn(ApiResponse.success("密码找回成功，请使用新密码登录"));
 
         assertEquals("密码修改成功，请重新登录", controller.changePassword(changeRequest).getMessage());
         assertEquals("密码重置成功", controller.resetPassword(resetRequest).getMessage());
         assertEquals("123456", controller.requestForgotPasswordCode(forgotRequest).getData().getResetCode());
-        assertEquals("密码找回成功，请使用新密码登录", controller.confirmForgotPassword(confirmRequest).getMessage());
+
+        jakarta.servlet.http.HttpServletRequest httpRequest = mock(jakarta.servlet.http.HttpServletRequest.class);
+        when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
+        assertEquals("密码找回成功，请使用新密码登录", controller.confirmForgotPassword(confirmRequest, httpRequest).getMessage());
     }
 }

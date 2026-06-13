@@ -143,12 +143,15 @@ class AuthApplicationServiceTest {
 
     @Test
     void shouldConfirmForgotPasswordAndLogoutUser() {
-        when(passwordRecoveryService.confirmReset(new ForgotPasswordConfirmRequest("alice", "123456", "newSecret1", "newSecret1")))
+        when(passwordRecoveryService.confirmReset(
+                new ForgotPasswordConfirmRequest("alice", "123456", "newSecret1", "newSecret1"),
+                "127.0.0.1"))
                 .thenReturn("u-3");
 
         try (MockedStatic<StpUtil> stpUtil = mockStatic(StpUtil.class)) {
             ApiResponse<String> response = authApplicationService.confirmForgotPassword(
-                    new ForgotPasswordConfirmRequest("alice", "123456", "newSecret1", "newSecret1")
+                    new ForgotPasswordConfirmRequest("alice", "123456", "newSecret1", "newSecret1"),
+                    "127.0.0.1"
             );
 
             stpUtil.verify(() -> StpUtil.logout("u-3"));
