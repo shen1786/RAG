@@ -22,9 +22,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
 
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 
@@ -68,22 +70,25 @@ public class AiService {
     // ────── 聊天编排 ──────
 
     @CircuitBreaker(name = "dashscope-chat", fallbackMethod = "chatFallback")
-    public String chat(String msg, String userId) {
-        RetrievalResult result = ragRetrievalService.retrieve(msg, userId);
-        String systemPrompt = buildSingleTurnSystemPrompt(result);
+    @TimeLimiter(name = "dashscope-chat")
+    public CompletableFuture<String> chat(String msg, String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            RetrievalResult result = ragRetrievalService.retrieve(msg, userId);
+            String systemPrompt = buildSingleTurnSystemPrompt(result);
 
-        return deepchatClient.prompt()
-                .advisors(advisorSpec -> advisorSpec.param(CONVERSATION_ID, userId))
-                .tools(dateTimeTools)
-                .system(systemPrompt)
-                .user(msg)
-                .call()
-                .content();
+            return deepchatClient.prompt()
+                    .advisors(advisorSpec -> advisorSpec.param(CONVERSATION_ID, userId))
+                    .tools(dateTimeTools)
+                    .system(systemPrompt)
+                    .user(msg)
+                    .call()
+                    .content();
+        });
     }
 
-    public String chatFallback(String msg, String userId, Throwable t) {
+    public CompletableFuture<String> chatFallback(String msg, String userId, Throwable t) {
         log.warn("chat 熔断降级: userId={}, error={}", userId, t.getMessage());
-        return "AI 服务暂时不可用，请稍后重试";
+        return CompletableFuture.completedFuture("AI 服务暂时不可用，请稍后重试");
     }
 
     public Flux<ServerSentEvent<String>> multiTurnChat(MultiTurnChatRequest request) {

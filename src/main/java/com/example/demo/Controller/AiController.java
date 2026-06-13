@@ -43,7 +43,7 @@ public class AiController {
         if (msg.length() > 4000) {
             return "问题过长，请缩短后重试";
         }
-        return aiService.chat(msg, authContextService.resolveUserId(userId));
+        return aiService.chat(msg, authContextService.resolveUserId(userId)).join();
     }
 
     /**
