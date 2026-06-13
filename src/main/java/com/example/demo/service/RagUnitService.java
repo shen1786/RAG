@@ -24,8 +24,6 @@ import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.tika.Tika;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -44,16 +42,12 @@ import java.util.UUID;
 @Slf4j
 public class RagUnitService {
 
-    private static final int VECTOR_BATCH_SIZE = 10;
-    private static final int VECTOR_ADD_MAX_RETRIES = 3;
-    private static final long VECTOR_ADD_RETRY_DELAY_MS = 200L;
     private static final int DB_BATCH_FLUSH_SIZE = 500;
 
     private final RagUnitMapper ragUnitMapper;
     private final SqlSessionFactory sqlSessionFactory;
     private final UploadService uploadService;
-    private final VectorStore leafVectorStore;
-    private final VectorStore summaryVectorStore;
+    private final VectorStoreWriteService vectorStoreWriteService;
     private final MediaProcessorRegistry processorRegistry;
     private final FileProcessProducer fileProcessProducer;
     private final DocumentFileService documentFileService;
@@ -64,8 +58,7 @@ public class RagUnitService {
     public RagUnitService(RagUnitMapper ragUnitMapper,
                           SqlSessionFactory sqlSessionFactory,
                           UploadService uploadService,
-                          @Qualifier("leafVectorStore") VectorStore leafVectorStore,
-                          @Qualifier("summaryVectorStore") VectorStore summaryVectorStore,
+                          VectorStoreWriteService vectorStoreWriteService,
                           MediaProcessorRegistry processorRegistry,
                           FileProcessProducer fileProcessProducer,
                           DocumentFileService documentFileService,
@@ -74,8 +67,7 @@ public class RagUnitService {
         this.ragUnitMapper = ragUnitMapper;
         this.sqlSessionFactory = sqlSessionFactory;
         this.uploadService = uploadService;
-        this.leafVectorStore = leafVectorStore;
-        this.summaryVectorStore = summaryVectorStore;
+        this.vectorStoreWriteService = vectorStoreWriteService;
         this.processorRegistry = processorRegistry;
         this.fileProcessProducer = fileProcessProducer;
         this.documentFileService = documentFileService;
@@ -314,8 +306,7 @@ public class RagUnitService {
         }
 
         if (!idsToDelete.isEmpty()) {
-            leafVectorStore.delete(idsToDelete);
-            summaryVectorStore.delete(idsToDelete);
+            vectorStoreWriteService.deleteFromVectorStores(idsToDelete);
         }
     }
 
@@ -362,9 +353,7 @@ public class RagUnitService {
         }
 
         if (!ids.isEmpty()) {
-            List<String> vectorIds = new ArrayList<>(ids);
-            leafVectorStore.delete(vectorIds);
-            summaryVectorStore.delete(vectorIds);
+            vectorStoreWriteService.deleteFromVectorStores(new ArrayList<>(ids));
         }
 
         QueryWrapper<RagUnit> wrapper = new QueryWrapper<>();
@@ -373,103 +362,7 @@ public class RagUnitService {
     }
 
     public void addUnitsToVectorStores(List<RagUnit> units, String filename) {
-        List<Document> leafDocuments = new ArrayList<>();
-        List<Document> summaryDocuments = new ArrayList<>();
-
-        for (RagUnit unit : units) {
-            if (unit.getContent() == null || unit.getContent().isBlank()) {
-                continue;
-            }
-
-            Map<String, Object> metadata = buildVectorMetadata(unit, filename);
-            Document document = new Document(unit.getId(), unit.getContent(), metadata);
-
-            // 叶子节点和摘要节点分流写入不同索引，后续检索才能按层级控制路径。
-            if (unit.getNodeType() == RagNodeType.LEAF || unit.getNodeType() == null) {
-                leafDocuments.add(document);
-            } else {
-                summaryDocuments.add(document);
-            }
-        }
-
-        if (!leafDocuments.isEmpty()) {
-            batchAdd(leafVectorStore, leafDocuments);
-        }
-        if (!summaryDocuments.isEmpty()) {
-            batchAdd(summaryVectorStore, summaryDocuments);
-        }
-    }
-
-    private void batchAdd(VectorStore vectorStore, List<Document> documents) {
-        for (int i = 0; i < documents.size(); i += VECTOR_BATCH_SIZE) {
-            List<Document> batch = documents.subList(i, Math.min(i + VECTOR_BATCH_SIZE, documents.size()));
-            addBatchWithRetry(vectorStore, batch);
-        }
-    }
-
-    private void addBatchWithRetry(VectorStore vectorStore, List<Document> batch) {
-        RuntimeException batchFailure = null;
-
-        for (int attempt = 1; attempt <= VECTOR_ADD_MAX_RETRIES; attempt++) {
-            try {
-                vectorStore.add(batch);
-                return;
-            } catch (RuntimeException e) {
-                batchFailure = e;
-                log.warn("向量批量写入失败，准备重试: attempt={}/{}, size={}, firstDocumentId={}",
-                        attempt, VECTOR_ADD_MAX_RETRIES, batch.size(), batch.get(0).getId(), e);
-                sleepBeforeRetry(attempt);
-            }
-        }
-
-        if (batch.size() == 1) {
-            throw new RuntimeException("向量写入失败，documentId=" + batch.get(0).getId(), batchFailure);
-        }
-
-        log.warn("向量批量写入持续失败，降级为逐条写入: size={}, firstDocumentId={}",
-                batch.size(), batch.get(0).getId(), batchFailure);
-
-        List<String> failedDocumentIds = new ArrayList<>();
-        RuntimeException singleFailure = null;
-        for (Document document : batch) {
-            try {
-                addSingleWithRetry(vectorStore, document);
-            } catch (RuntimeException e) {
-                failedDocumentIds.add(document.getId());
-                singleFailure = e;
-            }
-        }
-
-        if (!failedDocumentIds.isEmpty()) {
-            throw new RuntimeException("向量写入失败，documentIds=" + String.join(",", failedDocumentIds), singleFailure);
-        }
-    }
-
-    private void addSingleWithRetry(VectorStore vectorStore, Document document) {
-        RuntimeException lastFailure = null;
-
-        for (int attempt = 1; attempt <= VECTOR_ADD_MAX_RETRIES; attempt++) {
-            try {
-                vectorStore.add(List.of(document));
-                return;
-            } catch (RuntimeException e) {
-                lastFailure = e;
-                log.warn("向量单条写入失败，准备重试: attempt={}/{}, documentId={}",
-                        attempt, VECTOR_ADD_MAX_RETRIES, document.getId(), e);
-                sleepBeforeRetry(attempt);
-            }
-        }
-
-        throw new RuntimeException("向量写入失败，documentId=" + document.getId(), lastFailure);
-    }
-
-    private void sleepBeforeRetry(int attempt) {
-        try {
-            Thread.sleep(VECTOR_ADD_RETRY_DELAY_MS * attempt);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("向量写入重试被中断", e);
-        }
+        vectorStoreWriteService.addUnitsToVectorStores(units, filename);
     }
 
     public Map<String, Object> buildVectorMetadata(RagUnit unit, String filename) {

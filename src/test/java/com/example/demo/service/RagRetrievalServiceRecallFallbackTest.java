@@ -11,6 +11,11 @@ import com.example.demo.model.SourceType;
 import com.example.demo.model.dto.RetrievalMode;
 import com.example.demo.model.dto.RetrievalResult;
 import com.example.demo.repository.RagUnitQueryRepository;
+import com.example.demo.service.retrieval.FlatRetrievalStrategy;
+import com.example.demo.service.retrieval.HierarchicalRetrievalStrategy;
+import com.example.demo.service.retrieval.KnowledgeTextBuilder;
+import com.example.demo.service.retrieval.RerankHelper;
+import com.example.demo.service.retrieval.UserFilterBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -62,13 +67,24 @@ class RagRetrievalServiceRecallFallbackTest {
         hierarchyConfig.setMidRerankTopK(4);
         hierarchyConfig.setLeafRerankTopK(8);
 
+        RerankHelper rerankHelper = new RerankHelper(rerankModel);
+        UserFilterBuilder userFilterBuilder = new UserFilterBuilder();
+        KnowledgeTextBuilder knowledgeTextBuilder = new KnowledgeTextBuilder(ragUnitQueryRepository, ragUnitService);
+
+        HierarchicalRetrievalStrategy hierarchicalStrategy = new HierarchicalRetrievalStrategy(
+                summaryVectorStore, ragUnitQueryRepository, rerankHelper, knowledgeTextBuilder, hierarchyConfig, userFilterBuilder);
+        FlatRetrievalStrategy flatStrategy = new FlatRetrievalStrategy(
+                leafVectorStore, ragUnitQueryRepository, rerankHelper, knowledgeTextBuilder, userFilterBuilder);
+
         ragRetrievalService = new RagRetrievalService(
                 leafVectorStore,
-                summaryVectorStore,
-                rerankModel,
+                hierarchicalStrategy,
+                flatStrategy,
+                rerankHelper,
+                knowledgeTextBuilder,
                 ragUnitQueryRepository,
                 ragUnitService,
-                hierarchyConfig,
+                userFilterBuilder,
                 Runnable::run
         );
 
@@ -76,6 +92,9 @@ class RagRetrievalServiceRecallFallbackTest {
         ReflectionTestUtils.setField(ragRetrievalService, "similarityThreshold", 0.3d);
         ReflectionTestUtils.setField(ragRetrievalService, "finalTopK", 5);
         ReflectionTestUtils.setField(ragRetrievalService, "hitScoreThreshold", 0.35d);
+        ReflectionTestUtils.setField(hierarchicalStrategy, "similarityThreshold", 0.3d);
+        ReflectionTestUtils.setField(flatStrategy, "candidateTopK", 15);
+        ReflectionTestUtils.setField(flatStrategy, "similarityThreshold", 0.3d);
     }
 
     @Test

@@ -9,6 +9,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import redis.clients.jedis.JedisPooled;
+
 import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -40,7 +42,7 @@ class VectorStoreConfigTest {
 
         RedisVectorStore store = (RedisVectorStore) config.leafVectorStore(
                 Mockito.mock(EmbeddingModel.class),
-                jedisConnectionFactory,
+                Mockito.mock(JedisPooled.class),
                 false,
                 "test-index",
                 "test-prefix",

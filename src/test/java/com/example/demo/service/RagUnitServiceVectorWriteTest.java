@@ -44,10 +44,7 @@ class RagUnitServiceVectorWriteTest {
     private UploadService uploadService;
 
     @Mock
-    private VectorStore leafVectorStore;
-
-    @Mock
-    private VectorStore summaryVectorStore;
+    private VectorStoreWriteService vectorStoreWriteService;
 
     @Mock
     private MediaProcessorRegistry processorRegistry;
@@ -72,8 +69,7 @@ class RagUnitServiceVectorWriteTest {
                 ragUnitMapper,
                 sqlSessionFactory,
                 uploadService,
-                leafVectorStore,
-                summaryVectorStore,
+                vectorStoreWriteService,
                 processorRegistry,
                 fileProcessProducer,
                 documentFileService,
@@ -89,19 +85,9 @@ class RagUnitServiceVectorWriteTest {
             units.add(unit("leaf-" + i));
         }
 
-        doThrow(new RuntimeException("batch failed"))
-                .when(leafVectorStore)
-                .add(argThat(documents -> documents != null && documents.size() > 1));
-        doNothing()
-                .when(leafVectorStore)
-                .add(argThat(documents -> documents != null && documents.size() == 1));
-
         ragUnitService.addUnitsToVectorStores(units, "sample.docx");
 
-        verify(leafVectorStore, times(3)).add(argThat(documents -> documents != null && documents.size() == 3));
-        verify(leafVectorStore).add(argThat(documents -> hasSingleDocumentId(documents, "leaf-0")));
-        verify(leafVectorStore).add(argThat(documents -> hasSingleDocumentId(documents, "leaf-1")));
-        verify(leafVectorStore).add(argThat(documents -> hasSingleDocumentId(documents, "leaf-2")));
+        verify(vectorStoreWriteService).addUnitsToVectorStores(units, "sample.docx");
     }
 
     @Test
@@ -111,8 +97,7 @@ class RagUnitServiceVectorWriteTest {
         ragUnitService.removeIndexedData("source-1", List.of("leaf-1", "summary-1"));
 
         ArgumentCaptor<List<String>> idsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(leafVectorStore).delete(idsCaptor.capture());
-        verify(summaryVectorStore).delete(idsCaptor.getValue());
+        verify(vectorStoreWriteService).deleteFromVectorStores(idsCaptor.capture());
 
         List<String> deletedIds = idsCaptor.getValue();
         assertEquals(2, deletedIds.size());

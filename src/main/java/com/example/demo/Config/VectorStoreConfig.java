@@ -19,15 +19,33 @@ import java.util.List;
 @Configuration
 public class VectorStoreConfig {
 
+    /**
+     * 共享的 JedisPooled 实例，供两个 VectorStore 复用同一连接池。
+     */
+    @Bean
+    public JedisPooled jedisPooled(JedisConnectionFactory jedisConnectionFactory) {
+        DefaultJedisClientConfig clientConfig = DefaultJedisClientConfig.builder()
+                .ssl(jedisConnectionFactory.isUseSsl())
+                .clientName(jedisConnectionFactory.getClientName())
+                .timeoutMillis(jedisConnectionFactory.getTimeout())
+                .password(jedisConnectionFactory.getPassword())
+                .build();
+
+        return new JedisPooled(
+                new HostAndPort(jedisConnectionFactory.getHostName(), jedisConnectionFactory.getPort()),
+                clientConfig
+        );
+    }
+
     @Bean
     @Primary
     public VectorStore leafVectorStore(EmbeddingModel embeddingModel,
-                                       JedisConnectionFactory jedisConnectionFactory,
+                                       JedisPooled jedisPooled,
                                        @Value("${spring.ai.vectorstore.redis.initialize-schema:true}") boolean initializeSchema,
                                        @Value("${spring.ai.vectorstore.redis.index-name:rag-leaf-index}") String indexName,
                                        @Value("${spring.ai.vectorstore.redis.prefix:rag-leaf-prefix}") String prefix,
                                        ObjectProvider<ObservationRegistry> observationRegistryProvider) {
-        return RedisVectorStore.builder(jedisPooled(jedisConnectionFactory), embeddingModel)
+        return RedisVectorStore.builder(jedisPooled, embeddingModel)
                 .initializeSchema(initializeSchema)
                 .observationRegistry(observationRegistryProvider.getIfAvailable(() -> ObservationRegistry.NOOP))
                 .indexName(indexName)
@@ -38,12 +56,12 @@ public class VectorStoreConfig {
 
     @Bean
     public VectorStore summaryVectorStore(EmbeddingModel embeddingModel,
-                                          JedisConnectionFactory jedisConnectionFactory,
+                                          JedisPooled jedisPooled,
                                           @Value("${spring.ai.vectorstore.redis.initialize-schema:true}") boolean initializeSchema,
                                           @Value("${spring.ai.vectorstore.redis.summary-index-name:rag-summary-index}") String indexName,
                                           @Value("${spring.ai.vectorstore.redis.summary-prefix:rag-summary-prefix}") String prefix,
                                           ObjectProvider<ObservationRegistry> observationRegistryProvider) {
-        return RedisVectorStore.builder(jedisPooled(jedisConnectionFactory), embeddingModel)
+        return RedisVectorStore.builder(jedisPooled, embeddingModel)
                 .initializeSchema(initializeSchema)
                 .observationRegistry(observationRegistryProvider.getIfAvailable(() -> ObservationRegistry.NOOP))
                 .indexName(indexName)
@@ -67,20 +85,6 @@ public class VectorStoreConfig {
                 RedisVectorStore.MetadataField.numeric("chunk_index"),
                 RedisVectorStore.MetadataField.numeric("start_time"),
                 RedisVectorStore.MetadataField.numeric("end_time")
-        );
-    }
-
-    private JedisPooled jedisPooled(JedisConnectionFactory jedisConnectionFactory) {
-        DefaultJedisClientConfig clientConfig = DefaultJedisClientConfig.builder()
-                .ssl(jedisConnectionFactory.isUseSsl())
-                .clientName(jedisConnectionFactory.getClientName())
-                .timeoutMillis(jedisConnectionFactory.getTimeout())
-                .password(jedisConnectionFactory.getPassword())
-                .build();
-
-        return new JedisPooled(
-                new HostAndPort(jedisConnectionFactory.getHostName(), jedisConnectionFactory.getPort()),
-                clientConfig
         );
     }
 }
