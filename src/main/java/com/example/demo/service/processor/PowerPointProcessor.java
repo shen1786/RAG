@@ -4,10 +4,10 @@ import com.example.demo.model.RagUnit;
 import com.example.demo.model.SourceType;
 import com.example.demo.service.TextSplitterService;
 import com.example.demo.service.UploadService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.sl.usermodel.PictureData;
 import org.apache.poi.xslf.usermodel.*;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -19,16 +19,14 @@ import java.util.UUID;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class PowerPointProcessor implements MediaProcessor {
 
-    @Autowired
-    private ImageProcessor imageProcessor;
+    private final ImageProcessor imageProcessor;
 
-    @Autowired
-    private UploadService uploadService;
+    private final UploadService uploadService;
 
-    @Autowired
-    private TextSplitterService textSplitterService;
+    private final TextSplitterService textSplitterService;
 
     @Value("${chunking.token.ppt-chunk-size:1000}")
     private int pptChunkSize;

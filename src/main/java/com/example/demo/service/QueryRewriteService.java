@@ -1,11 +1,11 @@
 package com.example.demo.service;
 
 import com.alibaba.cloud.ai.memory.redis.RedisChatMemoryRepository;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
@@ -24,15 +24,14 @@ import java.util.List;
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class QueryRewriteService {
 
-    @Autowired
     @Qualifier("redisChatMemoryRepository")
-    private RedisChatMemoryRepository chatMemoryRepository;
+    private final RedisChatMemoryRepository chatMemoryRepository;
 
-    @Autowired
     @Qualifier("deepchatClient")
-    private ChatClient chatClient;
+    private final ChatClient chatClient;
 
     /** 最多取最近几条历史消息用于改写（控制 Token 消耗） */
     private static final int MAX_HISTORY_MESSAGES = 6;

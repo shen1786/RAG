@@ -5,10 +5,10 @@ import com.example.demo.model.RagUnit;
 import com.example.demo.model.SourceType;
 import com.example.demo.service.AsrService;
 import com.example.demo.service.UploadService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bytedeco.javacv.*;
 import org.bytedeco.ffmpeg.global.avcodec;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
@@ -28,23 +28,19 @@ import java.util.stream.Collectors;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class VideoProcessor implements MediaProcessor {
 
-    @Autowired
-    private VideoConfig videoConfig;
+    private final VideoConfig videoConfig;
 
-    @Autowired
-    private ImageProcessor imageProcessor;
+    private final ImageProcessor imageProcessor;
 
-    @Autowired
-    private AsrService asrService;
+    private final AsrService asrService;
 
-    @Autowired
-    private UploadService uploadService;
+    private final UploadService uploadService;
 
-    @Autowired
     @Qualifier("videoProcessorExecutor")
-    private ExecutorService executorService;
+    private final ExecutorService executorService;
 
     @Override
     public boolean supports(String mimeType) {

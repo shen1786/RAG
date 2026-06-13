@@ -5,8 +5,8 @@ import com.example.demo.model.dto.FileExistenceResponse;
 import com.example.demo.model.dto.UploadResponse;
 import com.example.demo.util.FileNameSanitizer;
 import com.example.demo.util.HashUtils;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -25,13 +25,12 @@ import java.util.stream.Stream;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class ChunkUploadService {
 
-    @Autowired
-    private ChunkUploadRedisService chunkUploadRedisService;
+    private final ChunkUploadRedisService chunkUploadRedisService;
 
-    @Autowired
-    private RagUnitService ragUnitService;
+    private final RagUnitService ragUnitService;
 
     @Value("${file.upload.temp-dir:./temp/chunks}")
     private String tempDirBase;

@@ -126,7 +126,8 @@ public class AiController {
             log.warn("ASR 服务不可用: {}", e.getMessage());
             return ApiResponse.error(503, "语音识别服务暂不可用，请稍后重试");
         } catch (Exception e) {
-            return ApiResponse.error("语音识别失败: " + e.getMessage());
+            log.error("语音识别异常", e);
+            return ApiResponse.error("语音识别失败，请稍后重试");
         }
     }
 }

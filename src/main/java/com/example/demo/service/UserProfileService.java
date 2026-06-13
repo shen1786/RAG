@@ -1,11 +1,11 @@
 package com.example.demo.service;
 
 import com.alibaba.cloud.ai.memory.redis.RedisChatMemoryRepository;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
@@ -26,18 +26,16 @@ import java.util.List;
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class UserProfileService {
 
-    @Autowired
     @Qualifier("redisChatMemoryRepository")
-    private RedisChatMemoryRepository chatMemoryRepository;
+    private final RedisChatMemoryRepository chatMemoryRepository;
 
-    @Autowired
     @Qualifier("deepchatClient")
-    private ChatClient chatClient;
+    private final ChatClient chatClient;
 
-    @Autowired
-    private StringRedisTemplate redisTemplate;
+    private final StringRedisTemplate redisTemplate;
 
     /** Redis 中存储用户画像的 Key 前缀 */
     private static final String PROFILE_KEY_PREFIX = "user:profile:";

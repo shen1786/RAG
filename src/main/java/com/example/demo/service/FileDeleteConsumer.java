@@ -8,7 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.messaging.handler.annotation.Header;
@@ -20,28 +19,29 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class FileDeleteConsumer {
 
-    @Autowired
-    private RagUnitMapper ragUnitMapper;
+    private final RagUnitMapper ragUnitMapper;
+    private final VectorStore leafVectorStore;
+    private final VectorStore summaryVectorStore;
+    private final UploadService uploadService;
+    private final FileDeleteProducer fileDeleteProducer;
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final DocumentFileService documentFileService;
 
-    @Autowired
-    @Qualifier("leafVectorStore")
-    private VectorStore leafVectorStore;
-
-    @Autowired
-    @Qualifier("summaryVectorStore")
-    private VectorStore summaryVectorStore;
-
-    @Autowired
-    private UploadService uploadService;
-
-    @Autowired
-    private FileDeleteProducer fileDeleteProducer;
-
-    @Autowired
-    private RedisTemplate<String, Object> redisTemplate;
-
-    @Autowired
-    private DocumentFileService documentFileService;
+    public FileDeleteConsumer(RagUnitMapper ragUnitMapper,
+                              @Qualifier("leafVectorStore") VectorStore leafVectorStore,
+                              @Qualifier("summaryVectorStore") VectorStore summaryVectorStore,
+                              UploadService uploadService,
+                              FileDeleteProducer fileDeleteProducer,
+                              RedisTemplate<String, Object> redisTemplate,
+                              DocumentFileService documentFileService) {
+        this.ragUnitMapper = ragUnitMapper;
+        this.leafVectorStore = leafVectorStore;
+        this.summaryVectorStore = summaryVectorStore;
+        this.uploadService = uploadService;
+        this.fileDeleteProducer = fileDeleteProducer;
+        this.redisTemplate = redisTemplate;
+        this.documentFileService = documentFileService;
+    }
 
     private static final String DELETE_TASK_PREFIX = "delete:task:";
     private static final int TASK_EXPIRE_HOURS = 24;

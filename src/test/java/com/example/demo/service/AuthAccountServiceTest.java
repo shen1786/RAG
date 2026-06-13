@@ -129,8 +129,8 @@ class AuthAccountServiceTest {
         when(authUserMapper.selectByUsername("alice")).thenReturn(null);
         when(authUserMapper.selectByEmail("alice@example.com")).thenReturn(existingUser);
 
-        IllegalArgumentException error = assertThrows(
-                IllegalArgumentException.class,
+        BusinessException error = assertThrows(
+                BusinessException.class,
                 () -> authAccountService.register("alice", "secret123", "alice@example.com")
         );
 

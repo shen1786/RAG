@@ -64,7 +64,7 @@
               v-model="password" 
               type="password" 
               required
-              placeholder="请输入密码 (至少6位)" 
+              placeholder="请输入密码（至少8位，需包含字母和数字）" 
               class="w-full px-md py-sm border border-outline-variant rounded-lg bg-surface focus:border-primary focus:ring-2 focus:ring-primary-container outline-none transition-all font-body-sm text-body-sm"
             />
           </div>
@@ -123,8 +123,12 @@ const handleRegister = async () => {
     errorMsg.value = '两次输入的密码不一致'
     return
   }
-  if (password.value.length < 6) {
-    errorMsg.value = '密码长度不能少于6位'
+  if (password.value.length < 8) {
+    errorMsg.value = '密码长度不能少于8位'
+    return
+  }
+  if (!/[a-zA-Z]/.test(password.value) || !/[0-9]/.test(password.value)) {
+    errorMsg.value = '密码必须包含字母和数字'
     return
   }
   if (!email.value.trim()) {

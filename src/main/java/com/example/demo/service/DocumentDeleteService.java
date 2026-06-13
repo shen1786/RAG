@@ -7,8 +7,8 @@ import com.example.demo.model.RagUnit;
 import com.example.demo.model.dto.DeleteTaskStatus;
 import com.example.demo.model.dto.FileDeleteTask;
 import com.example.demo.util.HashUtils;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,19 +20,13 @@ import java.util.concurrent.TimeUnit;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class DocumentDeleteService {
 
-    @Autowired
-    private RagUnitMapper ragUnitMapper;
-
-    @Autowired
-    private FileDeleteProducer fileDeleteProducer;
-
-    @Autowired
-    private RedisTemplate<String, Object> redisTemplate;
-
-    @Autowired
-    private DocumentFileService documentFileService;
+    private final RagUnitMapper ragUnitMapper;
+    private final FileDeleteProducer fileDeleteProducer;
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final DocumentFileService documentFileService;
 
     private static final String DELETE_TASK_PREFIX = "delete:task:";
 

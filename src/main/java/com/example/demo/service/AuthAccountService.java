@@ -44,15 +44,15 @@ public class AuthAccountService {
         String normalizedEmail = normalizeEmail(email);
         validatePassword(password);
         if (authUserMapper.selectByUsername(normalizedUsername) != null) {
-            throw new IllegalArgumentException("用户名已存在");
+            throw new BusinessException(409, "用户名已存在");
         }
         if (authUserMapper.selectByEmail(normalizedEmail) != null) {
-            throw new IllegalArgumentException("邮箱已被占用");
+            throw new BusinessException(409, "邮箱已被占用");
         }
 
         AuthRole role = authRoleMapper.selectByCode("user");
         if (role == null) {
-            throw new IllegalArgumentException("默认用户角色不存在");
+            throw new BusinessException(500, "系统配置异常，请联系管理员");
         }
 
         AuthUser user = new AuthUser();
@@ -89,7 +89,7 @@ public class AuthAccountService {
     public void changePassword(String userId, String currentPassword, String newPassword, String confirmNewPassword) {
         AuthUser user = requireById(userId);
         if (currentPassword == null || currentPassword.isBlank()) {
-            throw new IllegalArgumentException("当前密码不能为空");
+            throw new BusinessException(400, "当前密码不能为空");
         }
         validateNewPassword(newPassword, confirmNewPassword);
         if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
@@ -157,31 +157,31 @@ public class AuthAccountService {
 
     public String normalizeUsername(String username) {
         if (username == null) {
-            throw new IllegalArgumentException("用户名不能为空");
+            throw new BusinessException(400, "用户名不能为空");
         }
         return username.trim();
     }
 
     public String normalizeEmail(String email) {
         if (email == null || email.trim().isEmpty()) {
-            throw new IllegalArgumentException("邮箱不能为空");
+            throw new BusinessException(400, "邮箱不能为空");
         }
         String normalizedEmail = email.trim().toLowerCase();
         if (normalizedEmail.length() > 255 || !EMAIL_PATTERN.matcher(normalizedEmail).matches()) {
-            throw new IllegalArgumentException("邮箱格式不正确");
+            throw new BusinessException(400, "邮箱格式不正确");
         }
         return normalizedEmail;
     }
 
     private void validatePassword(String password) {
         if (password == null) {
-            throw new IllegalArgumentException("密码不能为空");
+            throw new BusinessException(400, "密码不能为空");
         }
         if (password.length() < 8) {
-            throw new IllegalArgumentException("密码长度不能少于8个字符");
+            throw new BusinessException(400, "密码长度不能少于8个字符");
         }
         if (password.length() > 128) {
-            throw new IllegalArgumentException("密码长度不能超过128个字符");
+            throw new BusinessException(400, "密码长度不能超过128个字符");
         }
         boolean hasLetter = false;
         boolean hasDigit = false;
@@ -191,14 +191,14 @@ public class AuthAccountService {
             if (hasLetter && hasDigit) break;
         }
         if (!hasLetter || !hasDigit) {
-            throw new IllegalArgumentException("密码必须包含字母和数字");
+            throw new BusinessException(400, "密码必须包含字母和数字");
         }
     }
 
     private void validateNewPassword(String newPassword, String confirmNewPassword) {
         validatePassword(newPassword);
         if (confirmNewPassword == null || !newPassword.equals(confirmNewPassword)) {
-            throw new IllegalArgumentException("两次输入的新密码不一致");
+            throw new BusinessException(400, "两次输入的新密码不一致");
         }
     }
 

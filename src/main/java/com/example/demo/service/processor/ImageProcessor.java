@@ -12,7 +12,6 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.content.Media;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
 
@@ -29,7 +28,6 @@ public class ImageProcessor implements MediaProcessor {
 
     private final ChatClient chatClient;
 
-    @Autowired
     public ImageProcessor(@Qualifier("qwen") ChatModel chatModel) {
         this.chatClient = ChatClient.builder(chatModel).build();
     }
