@@ -30,7 +30,7 @@ public class ChunkUploadResponse {
                 .needUpload(false)
                 .progress(100.0)
                 .status(DocumentFileStatus.SUCCESS)
-                .message("鏂囦欢宸插瓨鍦紝绉掍紶鎴愬姛")
+                .message("文件已存在，秒传成功")
                 .build();
     }
 
@@ -40,7 +40,7 @@ public class ChunkUploadResponse {
                 .needUpload(true)
                 .uploadedChunks(uploadedChunks)
                 .progress(progress)
-                .message("鍙互缁х画涓婁紶")
+                .message("可以继续上传")
                 .build();
     }
 
@@ -52,7 +52,7 @@ public class ChunkUploadResponse {
                 .progress(status == DocumentFileStatus.SUCCESS ? 100.0 : 0.0)
                 .status(status)
                 .errorMessage(errorMessage)
-                .message("鏂囦欢宸叉湁澶勭悊璁板綍")
+                .message("文件已有处理记录")
                 .build();
     }
 }

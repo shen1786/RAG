@@ -9,6 +9,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import org.springframework.beans.factory.annotation.Autowired;
+
 import java.time.Duration;
 
 /**
@@ -29,6 +31,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     /** 窗口时长（秒） */
     private final int windowSeconds;
 
+    @Autowired
     public RateLimitInterceptor(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
         this(redisTemplate, objectMapper, 10, 60);
     }

@@ -5,6 +5,8 @@ server:
       force: true
       charset: UTF-8
 spring:
+  profiles:
+    active: local
   application:
     name: demo
   flyway:
@@ -37,16 +39,16 @@ spring:
         initialize-schema: true
         index-name: atguigu-index
         prefix: atguigu-prefix
-        # 璁剧疆鍚戦噺鏁版嵁姘镐笉杩囨湡锛? 琛ㄧず涓嶈繃鏈燂級
+        # 设置向量数据永不过期（0 表示不过期）
         ttl-seconds: 0
   servlet:
     multipart:
       max-file-size: 500MB
       max-request-size: 500MB
   datasource:
-    url: jdbc:mysql://39.108.175.183:3306/rag_knowledge?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    url: jdbc:mysql://182.92.193.229:3306/rag_knowledge?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
     username: root
-    password: nm561234789
+    password: mysql123456
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       max-lifetime: 600000       # 10 minutes
@@ -55,9 +57,9 @@ spring:
       keepalive-time: 30000
   data:
     redis:
-      host: 120.24.238.51
+      host: 182.92.193.229
       port: 6379
-      password: nm561234789 # 璇锋浛鎹负鎮ㄥ湪鏈嶅姟鍣ㄤ笂璁剧疆鐨勫己瀵嗙爜
+      password: redis123456 # 请替换为您在服务器上设置的强密码
       database: 0
       timeout: 60000ms
       connect-timeout: 30000ms
@@ -70,40 +72,40 @@ spring:
           time-between-eviction-runs: 30000ms
           min-evictable-idle-time: 60000ms
   rabbitmq:
-    host: 120.24.238.51
+    host: 182.92.193.229
     port: 5672
     username: rabbitmq
-    password: nm561234789
+    password: mq123456
     virtual-host: /
-    connection-timeout: 30000  # 杩炴帴瓒呮椂 30 绉?
+    connection-timeout: 30000  # 连接超时 30 秒
     listener:
       simple:
-        # 娑堣垂鑰呭苟鍙戞暟锛堟牴鎹湇鍔″櫒鎬ц兘璋冩暣锛?
+        # 消费者并发数（根据服务器性能调整）
         concurrency: 3
         max-concurrency: 10
-        # 鎵嬪姩纭妯″紡锛岄槻姝㈡秷鎭涪澶?
+        # 手动确认模式，防止消息丢失
         acknowledge-mode: manual
-        # 棰勫彇鏁伴噺锛堟瘡娆′粠闃熷垪鎷夊彇鐨勬秷鎭暟锛?
+        # 预取数量（每次从队列拉取的消息数）
         prefetch: 1
-        # 娑堣垂鑰呰秴鏃舵椂闂达紙榛樿30鍒嗛挓澶煭锛屾敼涓?灏忔椂锛?
+        # 消费者超时时间（默认30分钟太短，改为1小时）
         idle-event-interval: 7200000
     template:
-      # 鍙戦€佹秷鎭け璐ユ椂鐨勯噸璇曟満鍒?
+      # 发送消息失败时的重试机制
       retry:
         enabled: true
         initial-interval: 1000
         max-attempts: 3
 
 minio:
-  endpoint: http://39.108.175.183:9000
-  access-key: minioadmin
-  secret-key: nm561234789
+  endpoint: http://182.92.193.229:9000
+  access-key: minio
+  secret-key: minio123456
   bucket: rag-knowledge
 
-# 鏂囦欢涓婁紶閰嶇疆
+# 文件上传配置
 file:
   upload:
-    temp-dir: ./temp/chunks  # 鍒嗙墖涓存椂瀛樺偍鐩綍
+    temp-dir: ./temp/chunks  # 分片临时存储目录
 
 aliyun:
   asr:
@@ -117,69 +119,65 @@ video:
   keyframe-interval: 5
 
 chunking:
-  # 鏃х殑鍥哄畾鍒囧壊閰嶇疆锛堝凡搴熷純锛屼繚鐣欑敤浜庡弬鑰冿級
+  # 旧的固定切割配置（已废弃，保留用于参考）
   fixed:
     chunk-size: 1000
     overlap: 200
 
-  # 鏂扮殑 Token 鍒囧壊閰嶇疆锛堟帹鑽愪娇鐢級
+  # 新的 Token 切割配置（推荐使用）
   token:
-    # 榛樿姣忎釜鍒嗗潡鐨?token 鏁伴噺锛?00 tokens 鈮?3200 瀛楃锛岄€傚悎澶у鏁?AI 妯″瀷锛?
+    # 默认每个分块的 token 数量（800 tokens ≈ 3200 字符，适合大多数 AI 模型）
     default-chunk-size: 800
-    # PPT 涓撶敤鐨?chunk size锛堝彲浠ヨ缃洿澶э紝鍥犱负 PPT 鍐呭缁撴瀯鍖栵級
+    # PPT 专用的 chunk size（可以设置更大，因为 PPT 内容结构化）
     ppt-chunk-size: 1000
-    # 鏈€灏忓垎鍧楀瓧绗︽暟锛堥伩鍏嶅垎鍧楄繃灏忥級
+    # 最小分块字符数（避免分块过小）
     min-chunk-size-chars: 350
-    # 鏈€灏忓祵鍏ラ暱搴︼紙鐭簬姝ら暱搴︾殑鏂囨湰涓嶄細琚祵鍏ワ級
+    # 最小嵌入长度（短于此长度的文本不会被嵌入）
     min-chunk-length-to-embed: 5
-    # 鏈€澶у垎鍧楁暟閲忥紙闃叉鏂囨。杩囧ぇ瀵艰嚧鍐呭瓨闂锛?
+    # 最大分块数量（防止文档过大导致内存问题）
     max-num-chunks: 10000
-    # 鏄惁淇濈暀鍒嗛殧绗︼紙娈佃惤銆佸彞瀛愯竟鐣岀瓑锛?
+    # 是否保留分隔符（段落、句子边界等）
     keep-separator: true
 
-# 鑱婂ぉ璁板繂閰嶇疆
+# 聊天记忆配置
 chat:
   memory:
-    # 浼犵粰妯″瀷鐨勬渶杩戞秷鎭獥鍙ｅぇ灏忥紙鏉★級
+    # 传给模型的最近消息窗口大小（条）
     max-messages: 10
-    # 鎬绘秷鎭秴杩囨闃堝€兼椂瑙﹀彂鎽樿锛堝繀椤诲ぇ浜?max-messages锛?
+    # 总消息超过此阈值时触发摘要（必须大于 max-messages）
     summarize-threshold: 12
-    # 鍔╂墜鍥炲鎴柇闀垮害锛堟憳瑕佹椂鑺傜渷 Token锛?
+    # 助手回复截断长度（摘要时节省 Token）
     assistant-truncate-length: 300
-    # 鎽樿鏈€澶у瓧鏁伴檺鍒?
+    # 摘要最大字数限制
     summary-max-length: 500
 
-# RAG 妫€绱㈤厤缃?
+# RAG 配置
 rag:
+  model:
+    vision: qwen-plus        # 多模态视觉模型（图片描述）
+    main-chat: qwen-plus  # 主聊天模型
+    deep-chat: qwen-plus       # 深度对话模型
+    summary-chat: qwen-plus    # 摘要生成模型
+    rerank: gte-rerank-v2      # Rerank 模型
   retrieval:
-    # 绮楀彫鍥炲€欓€夋暟閲忥紙鍚戦噺妫€绱㈤樁娈碉紝Rerank 鍓嶏級
-    # 鍊艰秺澶у彫鍥炶秺鍏ㄩ潰锛屼絾 Rerank 鑰楁椂涔熻秺闀?
     candidate-top-k: 15
-    # 鍚戦噺鐩镐技搴︽渶浣庨槇鍊硷紙浣庝簬姝ゅ垎鏁扮殑缁撴灉鐩存帴涓㈠純锛?
-    # 璁句綆涓€浜涜 Rerank 鏈夋洿澶氬€欓€夋潵绮炬帓
     similarity-threshold: 0.3
-    # Rerank 鍚庢渶缁堣繑鍥炵殑鏂囨。鏁伴噺
     final-top-k: 5
-    # 鍒ゅ畾"鍛戒腑鐭ヨ瘑搴?鐨勬渶浣?Rerank 鍒嗘暟
-    # 浣庝簬姝ゅ垎鏁拌涓烘湭鍛戒腑锛岃蛋绾€氱敤闂瓟
     hit-score-threshold: 0.35
-  rerank:
-    # Rerank 妯″瀷鍚嶇О锛圖ashScope 鎻愪緵锛?
-    model: gte-rerank-v2
 
-# Sa-Token 閰嶇疆
+# Sa-Token 配置
 sa-token:
-  # token 鍚嶇О锛堝墠绔€氳繃 header satoken 浼犻€掞級
+  # token 名称（前端通过 header satoken 传递）
   token-name: satoken
-  # token 鏈夋晥鏈燂紙绉掞級锛岄粯璁?0澶?
+  # token 有效期（秒），默认30天
   timeout: 2592000
-  # token 鏈€浣庢椿璺冮鐜囷紙绉掞級锛岃秴杩囨鏃堕棿鏃犳搷浣滃垯 token 杩囨湡锛?1 琛ㄧず涓嶉檺
+  # token 最低活跃频率（秒），超过此时间无操作则 token 过期，-1 表示不限
   active-timeout: -1
-  # 鏄惁鍏佽鍚屼竴璐﹀彿澶氬湴鍚屾椂鐧诲綍
+  # 是否允许同一账号多地同时登录
   is-concurrent: true
-  # 鍦ㄥ浜虹櫥褰曞悓涓€璐﹀彿鏃讹紝鏄惁鍏辩敤涓€涓?token
+  # 在多人登录同一账号时，是否共享一个 token
   is-share: false
-  # token 椋庢牸
+  # token 风格
   token-style: uuid
 
 auth:

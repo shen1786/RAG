@@ -34,6 +34,21 @@ public class Aiconfig {
     @Value("${spring.ai.dashscope.read-timeout-ms:60000}")
     private int readTimeoutMs;
 
+    @Value("${rag.model.vision:qwen-vl-max}")
+    private String visionModel;
+
+    @Value("${rag.model.main-chat:qwen3-omni-flash-2025-12-01}")
+    private String mainChatModel;
+
+    @Value("${rag.model.deep-chat:qwen-plus}")
+    private String deepChatModel;
+
+    @Value("${rag.model.summary-chat:qwen-plus}")
+    private String summaryChatModel;
+
+    @Value("${rag.model.rerank:gte-rerank-v2}")
+    private String rerankModel;
+
     @Bean
     public DashScopeApi dashScopeApi() {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
@@ -50,7 +65,7 @@ public class Aiconfig {
         return DashScopeChatModel.builder()
                 .dashScopeApi(dashScopeApi)
                 .defaultOptions(DashScopeChatOptions.builder()
-                        .withModel("qwen-vl-max")
+                        .withModel(visionModel)
                         .withMultiModel(true)
                         .build())
                 .build();
@@ -60,14 +75,14 @@ public class Aiconfig {
         return DashScopeChatModel.builder()
                 .dashScopeApi(dashScopeApi)
                 .defaultOptions(DashScopeChatOptions.builder()
-                        .withModel("qwen-plus")
+                        .withModel(deepChatModel)
                         .build())
                 .build();
     }
 
     /**
-     * 鑷畾涔夎亰澶╄蹇嗭細婊戝姩绐楀彛 + 绱Н鎽樿
-     * 瀹屾暣鍘嗗彶姘镐笉涓㈠け锛屾棫娑堟伅鑷姩鍘嬬缉涓烘憳瑕佹敞鍏ユā鍨嬩笂涓嬫枃
+     * 自定义聊天记忆：滑动窗口 + 累积摘要
+     * 完整历史永不丢失，旧消息自动压缩为摘要注入模型上下文
      */
     @Bean
     public SummaryWindowChatMemory chatMemory(
@@ -81,7 +96,7 @@ public class Aiconfig {
             @Value("${chat.memory.summary-max-length:500}") int summaryMaxLength) {
         if (summarizeThreshold <= maxMessages) {
             throw new IllegalArgumentException(
-                    String.format("chat.memory.summarize-threshold(%d) 蹇呴』澶т簬 chat.memory.max-messages(%d)",
+                    String.format("chat.memory.summarize-threshold(%d) 必须大于 chat.memory.max-messages(%d)",
                             summarizeThreshold, maxMessages));
         }
         return new SummaryWindowChatMemory(
@@ -96,7 +111,7 @@ public class Aiconfig {
                                  ) {
         return ChatClient.builder(dashScopeChatModel)
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
-                .defaultOptions(ChatOptions.builder().model("qwen3-omni-flash-2025-12-01").build())
+                .defaultOptions(ChatOptions.builder().model(mainChatModel).build())
                 .defaultToolCallbacks(tools.getToolCallbacks())
                 .build();
     }
@@ -107,7 +122,7 @@ public class Aiconfig {
     ) {
         return ChatClient.builder(dashScopeChatModel)
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
-                .defaultOptions(ChatOptions.builder().model("qwen-plus").build())
+                .defaultOptions(ChatOptions.builder().model(deepChatModel).build())
                 .defaultToolCallbacks(tools.getToolCallbacks())
                 .build();
     }
@@ -115,17 +130,16 @@ public class Aiconfig {
     @Bean("summaryChatClient")
     public ChatClient summaryChatClient(@Qualifier("deepchat") ChatModel chatModel) {
         return ChatClient.builder(chatModel)
-                .defaultOptions(ChatOptions.builder().model("qwen-plus").build())
+                .defaultOptions(ChatOptions.builder().model(deepChatModel).build())
                 .build();
     }
-
     /**
-     * DashScope Rerank 妯″瀷锛堢簿鎺掞級
-     * 鐢ㄤ簬瀵瑰悜閲忔绱㈢殑绮楀彫鍥炵粨鏋滆繘琛屼簩娆＄簿鎺掞紝鎻愬崌 RAG 妫€绱㈣川閲?
+     * DashScope Rerank 模型（精排）
+     * 用于对向量检索的粗召回结果进行二次精排，提升 RAG 检索质量
      */
     @Bean
     public RerankModel rerankModel(DashScopeApi dashScopeApi,
-                                   @Value("${rag.rerank.model:gte-rerank-v2}") String rerankModelName) {
+                                   @Value("${rag.model.rerank:gte-rerank-v2}") String rerankModelName) {
         return new DashScopeRerankModel(dashScopeApi,
                 DashScopeRerankOptions.builder()
                         .withModel(rerankModelName)

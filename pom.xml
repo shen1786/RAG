@@ -4,11 +4,11 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- 浣跨敤鍏煎 Spring AI 1.0.0 鐨?Spring Boot 绋冲畾鐗堟湰 -->
+    <!-- 使用兼容 Spring AI 1.0.0 的 Spring Boot 稳定版本 -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.5</version> <!-- 鎺ㄨ崘锛歋pring Boot 3.3.5 + Spring AI 1.0.0 瀹樻柟鍏煎 -->
+        <version>3.3.5</version> <!-- 推荐：Spring Boot 3.3.5 + Spring AI 1.0.0 官方兼容 -->
         <relativePath/>
     </parent>
 
@@ -24,7 +24,7 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- 缁熶竴绠＄悊 Spring AI 渚濊禆鐗堟湰涓?1.0.0 -->
+            <!-- 统一管理 Spring AI 依赖版本为 1.0.0 -->
             <dependency>
                 <groupId>org.springframework.ai</groupId>
                 <artifactId>spring-ai-bom</artifactId>
@@ -33,7 +33,7 @@
                 <scope>import</scope>
             </dependency>
 
-            <!-- 闃块噷浜?Spring AI Alibaba BOM锛堟湰韬熀浜?Spring AI 1.0.0锛?-->
+            <!-- 阿里云 Spring AI Alibaba BOM（本身基于 Spring AI 1.0.0） -->
             <dependency>
                 <groupId>com.alibaba.cloud.ai</groupId>
                 <artifactId>spring-ai-alibaba-bom</artifactId>
@@ -45,35 +45,35 @@
     </dependencyManagement>
 
     <dependencies>
-        <!-- Spring AI 鏍稿績缁勪欢锛堢敱 BOM 鎺у埗鐗堟湰锛?-->
+        <!-- Spring AI 核心组件（由 BOM 控制版本） -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-client</artifactId>
-            <!-- 鏃?version锛岀敱 spring-ai-bom:1.0.0 绠＄悊 -->
+            <!-- 无 version，由 spring-ai-bom:1.0.0 管理 -->
         </dependency>
 
-        <!-- 闃块噷浜?DashScope 澶фā鍨嬫敮鎸?-->
+        <!-- 阿里云 DashScope 大模型支持 -->
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>
             <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
-            <!-- 鐢?spring-ai-alibaba-bom 绠＄悊 -->
+            <!-- 由 spring-ai-alibaba-bom 管理 -->
         </dependency>
 
-        <!-- 闃块噷浜?Memory Redis 鏀寔 -->
+        <!-- 阿里云 Memory Redis 支持 -->
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>
             <artifactId>spring-ai-alibaba-starter-memory-redis</artifactId>
-            <!-- 鐢?spring-ai-alibaba-bom 绠＄悊 -->
+            <!-- 由 spring-ai-alibaba-bom 管理 -->
         </dependency>
 
-        <!-- Spring AI Redis 鍚戦噺瀛樺偍 -->
+        <!-- Spring AI Redis 向量存储 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-vector-store-redis</artifactId>
-            <!-- 鐢?spring-ai-bom:1.0.0 绠＄悊 -->
+            <!-- 由 spring-ai-bom:1.0.0 管理 -->
         </dependency>
 
-        <!-- Redis 瀹㈡埛绔?-->
+        <!-- Redis 客户端 -->
         <dependency>
             <groupId>redis.clients</groupId>
             <artifactId>jedis</artifactId>
@@ -188,7 +188,7 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.18.34</version>
+            <version>1.18.30</version>
             <optional>true</optional>
         </dependency>
 
@@ -242,6 +242,18 @@
             <version>2.6.0</version>
         </dependency>
 
+        <!-- JAXB (removed in Java 17, needed by Alibaba NLS SDK) -->
+        <dependency>
+            <groupId>javax.xml.bind</groupId>
+            <artifactId>jaxb-api</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jaxb</groupId>
+            <artifactId>jaxb-runtime</artifactId>
+            <version>2.3.9</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -279,7 +291,7 @@
         </plugins>
     </build>
 
-    <!-- 濡傛灉纭疄闇€瑕佸揩鐓т粨搴擄紙涓€鑸笉寤鸿锛夛紝淇濈暀锛涘惁鍒欏彲鍒犻櫎 -->
+    <!-- 如确实需要快照仓库（一般不建议），保留；否则可删除 -->
     <!--
     <repositories>
         <repository>

@@ -12,6 +12,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.content.Media;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
 
@@ -27,9 +28,12 @@ import java.util.UUID;
 public class ImageProcessor implements MediaProcessor {
 
     private final ChatClient chatClient;
+    private final String visionModel;
 
-    public ImageProcessor(@Qualifier("qwen") ChatModel chatModel) {
+    public ImageProcessor(@Qualifier("qwen") ChatModel chatModel,
+                          @Value("${rag.model.vision:qwen-vl-max}") String visionModel) {
         this.chatClient = ChatClient.builder(chatModel).build();
+        this.visionModel = visionModel;
     }
 
     @Override
@@ -106,7 +110,7 @@ public class ImageProcessor implements MediaProcessor {
                 ChatResponse response = chatClient
                         .prompt(new Prompt(message,
                                 DashScopeChatOptions.builder()
-                                        .withModel("qwen-vl-max")
+                                        .withModel(visionModel)
                                         .withMultiModel(true)
                                         .build()))
                         .call()

@@ -44,13 +44,14 @@
         </encoder>
     </appender>
 
-    <!-- 开发环境：控制台 + 文件 -->
-    <springProfile name="dev">
+    <!-- 开发/本地环境：控制台 + 文件 -->
+    <springProfile name="dev,local">
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
             <appender-ref ref="FILE"/>
         </root>
         <logger name="com.example.demo" level="DEBUG"/>
+    <logger name="com.example.demo.mapper" level="INFO"/>
     </springProfile>
 
     <!-- 生产环境：文件 + ERROR 单独文件 -->

@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -32,7 +33,7 @@ public class VectorStoreWriteService {
     public VectorStoreWriteService(
             @Qualifier("leafVectorStore") VectorStore leafVectorStore,
             @Qualifier("summaryVectorStore") VectorStore summaryVectorStore,
-            RagUnitService ragUnitService) {
+            @Lazy RagUnitService ragUnitService) {
         this.leafVectorStore = leafVectorStore;
         this.summaryVectorStore = summaryVectorStore;
         this.ragUnitService = ragUnitService;
