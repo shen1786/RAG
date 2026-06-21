@@ -10,10 +10,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import redis.clients.jedis.Connection;
 import redis.clients.jedis.DefaultJedisClientConfig;
 import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.JedisPooled;
 
+import java.time.Duration;
 import java.util.List;
 
 @Configuration
@@ -31,7 +34,18 @@ public class VectorStoreConfig {
                 .password(jedisConnectionFactory.getPassword())
                 .build();
 
+        GenericObjectPoolConfig<Connection> poolConfig = new GenericObjectPoolConfig<>();
+        poolConfig.setMaxTotal(32);
+        poolConfig.setMaxIdle(16);
+        poolConfig.setMinIdle(4);
+        poolConfig.setMaxWait(Duration.ofMillis(60000));
+        poolConfig.setTimeBetweenEvictionRuns(Duration.ofMillis(30000));
+        poolConfig.setMinEvictableIdleDuration(Duration.ofMillis(60000));
+        poolConfig.setTestOnBorrow(true);
+        poolConfig.setTestWhileIdle(true);
+
         return new JedisPooled(
+                poolConfig,
                 new HostAndPort(jedisConnectionFactory.getHostName(), jedisConnectionFactory.getPort()),
                 clientConfig
         );

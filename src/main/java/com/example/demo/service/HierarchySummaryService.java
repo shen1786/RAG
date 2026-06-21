@@ -27,6 +27,32 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import com.example.demo.Config.HierarchyConfig;
 
+/**
+ * 层级摘要生成服务，为 RAG 三层摘要树的 Section 和 Document 节点生成标题与摘要。
+ * <p>
+ * 调用链路：{@code summaryChatClient → DashScopeChatModel(qwen-plus) → DashScopeApi → RestClient}
+ * <p>
+ * 核心流程：
+ * <ol>
+ *   <li>输入校验 — 空内容直接返回兜底摘要</li>
+ *   <li>冷却检查 — 之前超时过则冷却期内直接使用规则摘要</li>
+ *   <li>输入截断 — 超过 {@value #MAX_INPUT_CHARS} 字符截断，防止单次调用超出模型上下文窗口</li>
+ *   <li>构建 Prompt — 强约束模型只输出 JSON: {@code {"title":"...","summary":"..."}}</li>
+ *   <li>提交到线程池 — 核心 2、最大 8 线程，队列容量 100</li>
+ *   <li>Future.get(timeout) — 等待结果，超时则 cancel 中断</li>
+ *   <li>解析 JSON — ObjectMapper 反序列化为 {@link SummaryPayload}</li>
+ *   <li>空值补全 — title 或 summary 为空时用规则兜底</li>
+ *   <li>异常处理 — 超时进入冷却期，其余异常直接返回兜底</li>
+ * </ol>
+ * <p>
+ * 容错机制：
+ * <ul>
+ *   <li>超时控制：{@code Future.get(timeout) + cancel(true)}，超时中断 LLM 调用</li>
+ *   <li>冷却期：超时触发冷却（{@code summaryFailureCooldownSeconds}），冷却期内所有请求直接走兜底</li>
+ *   <li>兜底策略：title = filename - Section N，summary = 内容前 240 字符</li>
+ *   <li>线程池拒绝策略：{@code CallerRunsPolicy}，队列满时由调用线程执行（不丢任务）</li>
+ * </ul>
+ */
 @Service
 @Slf4j
 public class HierarchySummaryService {
@@ -36,11 +62,16 @@ public class HierarchySummaryService {
     /** 摘要输出最大 token 数 */
     private static final int MAX_OUTPUT_TOKENS = 512;
 
+    /** LLM 聊天客户端，使用 qwen-plus 模型，无 ChatMemory、无 Tools */
     private final ChatClient summaryChatClient;
     private final ObjectMapper objectMapper;
+    /** 冷却截止时间戳（epoch ms），当前时间小于此值时表示处于冷却期 */
     private final AtomicLong summaryFallbackUntilEpochMs = new AtomicLong(0L);
+    /** 单次 LLM 调用超时秒数 */
     private final int summaryTimeoutSeconds;
+    /** 超时后冷却持续秒数 */
     private final int summaryFailureCooldownSeconds;
+    /** 摘要生成专用线程池：核心 2、最大 8、队列 100、守护线程、CallerRunsPolicy */
     private final ExecutorService summaryExecutor = new ThreadPoolExecutor(
             2, 8, 60L, TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(100),
@@ -52,6 +83,13 @@ public class HierarchySummaryService {
             new ThreadPoolExecutor.CallerRunsPolicy()
     );
 
+    /**
+     * 构造注入摘要所需的依赖。
+     *
+     * @param summaryChatClient  摘要专用 LLM 客户端（qwen-plus，无记忆无工具）
+     * @param objectMapper       JSON 解析器，用于反序列化 LLM 返回的 JSON
+     * @param hierarchyConfig    层级配置，提供超时秒数和冷却秒数
+     */
     public HierarchySummaryService(@Qualifier("summaryChatClient") ChatClient summaryChatClient,
                                    ObjectMapper objectMapper,
                                    HierarchyConfig hierarchyConfig) {
@@ -61,6 +99,17 @@ public class HierarchySummaryService {
         this.summaryFailureCooldownSeconds = Math.max(1, hierarchyConfig.getSummaryFailureCooldownSeconds());
     }
 
+    /**
+     * 为一组连续叶子 chunk 生成小节级标题与摘要。
+     * <p>
+     * 将所有叶子节点的 content 拼接后提交 LLM，生成 section 级别的标题和摘要。
+     * 若 LLM 调用失败或超时，返回兜底标题 "{filename} - Section {index+1}" 和内容前 240 字符。
+     *
+     * @param filename     原始文件名，用于兜底标题
+     * @param sectionIndex 小节序号（0-based），用于兜底标题
+     * @param leaves       该小节下的连续叶子节点列表
+     * @return 包含 title 和 summary 的摘要载荷
+     */
     public SummaryPayload summarizeSection(String filename, int sectionIndex, List<RagUnit> leaves) {
         // section summary 的输入是一组连续 chunk，适合生成局部主题标题。
         StringBuilder content = new StringBuilder();
@@ -74,6 +123,16 @@ public class HierarchySummaryService {
         return summarize("请为一组连续文档片段生成小节标题与摘要。", content.toString(), fallbackTitle);
     }
 
+    /**
+     * 为整篇文档生成文档级标题与摘要。
+     * <p>
+     * 输入为该文档下所有 section 摘要节点，将各 section 的 title 和 content 拼接后
+     * 提交 LLM 生成文档级摘要。成本低于直接对全文摘要，且减少超长上下文带来的不稳定。
+     *
+     * @param filename         原始文件名，用作兜底标题
+     * @param sectionSummaries 该文档下所有 section 摘要节点
+     * @return 包含 title 和 summary 的摘要载荷
+     */
     public SummaryPayload summarizeDocument(String filename, List<RagUnit> sectionSummaries) {
         // 文档级摘要建立在 section summary 之上，成本更低，也能减少超长上下文带来的不稳定。
         StringJoiner joiner = new StringJoiner("\n\n");
@@ -88,6 +147,19 @@ public class HierarchySummaryService {
         return summarize("请为整篇文档生成文档级标题与摘要。", joiner.toString(), filename);
     }
 
+    /**
+     * 核心摘要生成方法。
+     * <p>
+     * 流程：空值校验 → 冷却检查 → 输入截断(8000字符) → 构建JSON约束Prompt →
+     * 提交线程池 → Future.get(timeout)等待 → 解析JSON → 空值补全。
+     * <p>
+     * 异常时进入冷却期并返回兜底摘要，不中断整条索引链路。
+     *
+     * @param taskInstruction 任务指令，如"请为一组连续文档片段生成小节标题与摘要"
+     * @param content         待摘要的文本内容
+     * @param fallbackTitle   LLM 失败时使用的兜底标题
+     * @return 摘要载荷（title + summary）
+     */
     private SummaryPayload summarize(String taskInstruction, String content, String fallbackTitle) {
         String normalizedContent = content == null ? "" : content.trim();
         if (normalizedContent.isBlank()) {
@@ -208,6 +280,11 @@ public class HierarchySummaryService {
         return cleaned;
     }
 
+    /**
+     * LLM 摘要返回的结构化载荷。
+     * <p>
+     * 对应 Prompt 要求模型输出的 JSON 格式 {@code {"title":"...","summary":"..."}}。
+     */
     @Data
     @AllArgsConstructor
     public static class SummaryPayload {
