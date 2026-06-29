@@ -4,17 +4,25 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0b0ae133-297c-401f-8a96-cff6fe5cf154" name="更改" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+    <list default="true" id="0b0ae133-297c-401f-8a96-cff6fe5cf154" name="更改" comment="chore：上传解析链路javaDoc 核心注释">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/Config/VectorStoreConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/Config/VectorStoreConfig.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/FileProcessConsumer.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/FileProcessConsumer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/HierarchicalIndexingService.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/HierarchicalIndexingService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/HierarchySummaryService.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/HierarchySummaryService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/RagUnitService.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/RagUnitService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/VectorStoreWriteService.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/VectorStoreWriteService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/processor/MediaProcessor.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/processor/MediaProcessor.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/Config/RabbitMQConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/Config/RabbitMQConfig.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/model/dto/FileDeleteTask.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/model/dto/FileDeleteTask.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/model/dto/FileProcessTask.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/model/dto/FileProcessTask.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/model/dto/RetrievalResult.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/model/dto/RetrievalResult.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/AiService.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/AiService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/ChatSessionService.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/ChatSessionService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/FileDeleteConsumer.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/FileDeleteConsumer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/FileDeleteProducer.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/FileDeleteProducer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/FileProcessProducer.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/FileProcessProducer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/MarkdownStructureChunker.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/MarkdownStructureChunker.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/QueryRewriteService.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/QueryRewriteService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/RagRetrievalService.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/RagRetrievalService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/RetrievalSubQueryService.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/RetrievalSubQueryService.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/retrieval/HierarchicalRetrievalStrategy.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/retrieval/HierarchicalRetrievalStrategy.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/retrieval/KnowledgeTextBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/retrieval/KnowledgeTextBuilder.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/demo/service/retrieval/RerankHelper.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/demo/service/retrieval/RerankHelper.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/resources/application.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/resources/application.yaml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -57,6 +65,9 @@
   </component>
   <component name="MavenRunner">
     <option name="jreName" value="23" />
+  </component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="AISelfReview" />
   </component>
   <component name="ProjectColorInfo">{
   &quot;customColor&quot;: &quot;&quot;,
@@ -141,8 +152,18 @@
       <workItem from="1781703464288" duration="122000" />
       <workItem from="1781703972988" duration="897000" />
       <workItem from="1781704881634" duration="37985000" />
-      <workItem from="1781943875067" duration="29402000" />
+      <workItem from="1781943875067" duration="36094000" />
+      <workItem from="1782115141946" duration="52532000" />
     </task>
+    <task id="LOCAL-00001" summary="chore：上传解析链路javaDoc 核心注释">
+      <option name="closed" value="true" />
+      <created>1782027463645</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1782027463645</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -185,6 +206,10 @@
         </entry>
       </map>
     </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="chore：上传解析链路javaDoc 核心注释" />
+    <option name="LAST_COMMIT_MESSAGE" value="chore：上传解析链路javaDoc 核心注释" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

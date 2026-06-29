@@ -22,7 +22,7 @@ import java.util.Set;
 /**
  * 会话管理服务，负责会话的创建/查询/删除和历史记录管理。
  * <p>
- * 从 AiService 中拆分而来，AiService 保留纯聊天编排职责。
+// * 从 AiService 中拆分而来，AiService 保留纯聊天编排职责。
  */
 @Slf4j
 @Service

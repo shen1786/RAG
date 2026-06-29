@@ -59,25 +59,25 @@ public class QueryRewriteService {
      */
     public String rewrite(String sessionId, String currentQuery) {
         try {
-            // 1. 从 Redis 中获取该会话的历史消息
+            // ① 从 Redis 获取会话历史（数据来源：Spring AI 的 RedisChatMemoryRepository，按 sessionId 存储对话消息）
             List<Message> history = chatMemoryRepository.findByConversationId(sessionId);
 
-            // 如果没有历史记录，说明是第一轮对话，无需改写
+            // ② 首轮对话直接返回（原因：没有历史上下文，代词/省略无从推断，改写无意义）
             if (history == null || history.isEmpty()) {
                 log.debug("会话 {} 无历史记录，跳过查询改写", sessionId);
                 return currentQuery;
             }
 
-            // 2. 取最近的几条历史消息（控制 token 消耗）
+            // ③ 只取最近 6 条历史（原因：控制 LLM 输入 Token 数量，避免成本过高和上下文稀释）
             int startIdx = Math.max(0, history.size() - MAX_HISTORY_MESSAGES);
             List<Message> recentHistory = history.subList(startIdx, history.size());
 
-            // 3. 构建历史对话摘要文本
+            // ④ 组装历史对话文本
             StringBuilder historyText = new StringBuilder();
             for (Message msg : recentHistory) {
                 String role = msg.getMessageType() == MessageType.USER ? "用户" : "助手";
                 String text = msg.getText();
-                // 截断过长的助手回复（节省 token）
+                // 助手回复超 200 字截断（原因：回复内容对改写价值有限，节省 Token）
                 if (msg.getMessageType() == MessageType.ASSISTANT && text != null && text.length() > 200) {
                     text = text.substring(0, 200) + "...";
                 }
@@ -86,12 +86,12 @@ public class QueryRewriteService {
                 }
             }
 
-            // 如果历史记录为空白内容（比如只有工具调用），无需改写
+            // ⑤ 历史全空白则跳过（原因：可能只有工具调用记录，无有效文本上下文）
             if (historyText.isEmpty()) {
                 return currentQuery;
             }
 
-            // 4. 构建改写请求的用户 Prompt
+            // ⑥ 构建改写 Prompt（原因：给 LLM 明确的上下文和任务指令，引导它做代词替换和省略补全）
             String userPrompt = String.format("""
                     【对话历史】
                     %s
@@ -102,27 +102,27 @@ public class QueryRewriteService {
                     historyText.toString().trim(),
                     currentQuery);
 
-            // 5. 调用大模型进行改写（不带 Memory Advisor，这是一次独立的无状态调用）
+            // ⑦ 调用 LLM 改写（不带 Memory Advisor，原因：这是一次独立调用，不需要注入额外记忆，避免污染改写结果）
             String rewritten = chatClient.prompt()
                     .system(REWRITE_SYSTEM_PROMPT)
                     .user(userPrompt)
                     .call()
                     .content();
 
-            // 6. 校验改写结果
+            // ⑧ 校验改写结果（原因：LLM 可能返回空或异常内容，需兜底）
             if (rewritten == null || rewritten.isBlank()) {
                 log.warn("查询改写返回空结果，使用原始查询");
                 return currentQuery;
             }
 
-            // 去除可能的引号包裹
+            // ⑨ 去除引号包裹（原因：LLM 有时会在输出外层加引号，影响后续向量检索匹配）
             rewritten = rewritten.trim().replaceAll("^[\"']|[\"']$", "");
 
             log.info("查询改写完成: '{}' → '{}'", currentQuery, rewritten);
             return rewritten;
 
         } catch (Exception e) {
-            // 改写失败时降级为原始查询，保证服务可用性
+            // ⑩ 异常降级返回原始查询（原因：改写是增强环节，失败不应阻断主流程）
             log.warn("查询改写异常，降级使用原始查询: {}", e.getMessage());
             return currentQuery;
         }
